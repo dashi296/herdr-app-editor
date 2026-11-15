@@ -295,7 +295,7 @@ entries → adapters → ports → core
   - `state.focus()` でキーボードが editor に渡るか
 - **S6**: `watchFolder` の即時性と、macOS / Linux / Windows での失敗パターン → **macOS は確認済み**（約160ms、再帰的に通知される。1 MiB の `readTextFile` は約1ms。`docs/spikes/2026-11-16-s6-watch.md`）。Linux / Windows は未確認
 - **S7**: EditorState を作り直したときに selection を移せるか
-- **S8**: 1 MiB と 400 KB のファイルで、入力遅延とハイライトのコスト。しきい値を決める
+- **S8**: 1 MiB と 400 KB のファイルで、入力遅延とハイライトのコスト。しきい値を決める → **確認済み**。主な原因はハイライト。100 KB を超えるファイルはハイライトを切る（`docs/spikes/2026-11-16-trial2.md`）
 
 ### Step 2: core と保存の実装
 

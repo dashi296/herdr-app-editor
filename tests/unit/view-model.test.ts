@@ -30,6 +30,11 @@ describe("editorModel", () => {
     ]);
     expect(editorModel({ ...base, doc: failed }).dirty).toBe(true);
   });
+  test("highlighting switched off for size", () => {
+    expect(editorModel({ ...base, doc, highlightOff: true }).banners).toEqual([
+      { kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: [] },
+    ]);
+  });
   test("read-only, lossy and draft banners", () => {
     const m = editorModel({ ...base, doc, readonly: "remote", lossy: true, draftOffer: { savedAt: "10:42", conflict: true }, draftError: "disk full" });
     expect(m.banners.map((b) => [b.kind, b.actions])).toEqual([

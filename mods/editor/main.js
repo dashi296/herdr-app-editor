@@ -371,6 +371,13 @@ function languageFor(path) {
     return "txt";
   return ALIASES[name.slice(dot + 1).toLowerCase()] ?? "txt";
 }
+var HIGHLIGHT_LIMIT = 1e5;
+function highlightFor(path, length) {
+  const language = languageFor(path);
+  if (language !== "txt" && length > HIGHLIGHT_LIMIT)
+    return { language: "txt", off: true };
+  return { language, off: false };
+}
 
 // src/core/routing/routing.ts
 var liveEditors = (panes, mod) => new Map(panes.filter((p) => p.mod === mod).map((p) => [p.pane, p.tab]));
@@ -436,6 +443,8 @@ function editorModel(i) {
   const banners = [];
   if (i.readonly)
     banners.push({ kind: "info", text: READONLY_TEXT[i.readonly], actions: [] });
+  if (i.highlightOff)
+    banners.push({ kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: [] });
   if (i.lossy)
     banners.push({ kind: "warn", text: "Some bytes could not be read as UTF-8 and were replaced (U+FFFD).", actions: [] });
   if (d.status === "dirtyExternal" && d.external) {
@@ -557,6 +566,7 @@ class EditorView extends View {
   code = null;
   readonlyReason = null;
   lossy = false;
+  highlightOff = false;
   draftOffer = null;
   draftError = null;
   writer = null;
@@ -659,8 +669,10 @@ class EditorView extends View {
   setDoc(doc) {
     this.code?.release();
     this.doc = doc;
+    const hl = highlightFor(doc.path, doc.text.length);
+    this.highlightOff = hl.off;
     this.code = EditorState.new({
-      language: languageFor(doc.path),
+      language: hl.language,
       value: doc.text,
       readonly: this.readonlyReason !== null,
       font_family: String(settings().font_family ?? ""),
@@ -896,6 +908,7 @@ class EditorView extends View {
       readonly: this.readonlyReason,
       lossy: this.lossy,
       draftError: this.draftError,
+      highlightOff: this.highlightOff,
       draftOffer: this.draftOffer && { savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(), conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline) }
     });
     const header = h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : "")).child(div().font_semibold().child(model.title)).child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path)).child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : ""));

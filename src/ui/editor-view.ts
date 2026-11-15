@@ -9,7 +9,7 @@ import {
   type Doc, type Reread,
 } from "../core/document/document";
 import { draftBase, draftDir, paneBase } from "../core/draft/paths";
-import { languageFor } from "../core/language/language";
+import { highlightFor } from "../core/language/language";
 import { MOD_EDITOR, SHARED_KEY } from "../core/names";
 import {
   acceptOpen, decodeCommand, dialogOpened, encodeCommand, handleOpen, handleReply, idleRouting, interacted, pruneRegistry,
@@ -76,6 +76,7 @@ export abstract class EditorView extends View {
   private code: EditorState | null = null;
   private readonlyReason: "remote" | "not-writable" | null = null;
   private lossy = false;
+  private highlightOff = false;
   private draftOffer: Draft | null = null;
   private draftError: string | null = null;
   private writer: DraftWriter<Draft> | null = null;
@@ -168,8 +169,10 @@ export abstract class EditorView extends View {
   private setDoc(doc: Doc) {
     this.code?.release();
     this.doc = doc;
+    const hl = highlightFor(doc.path, doc.text.length);
+    this.highlightOff = hl.off;
     this.code = EditorState.new({
-      language: languageFor(doc.path), value: doc.text, readonly: this.readonlyReason !== null,
+      language: hl.language, value: doc.text, readonly: this.readonlyReason !== null,
       font_family: String(settings().font_family ?? ""), font_size: 13, syntax: syntaxColors(),
     });
     this.code.on("change", (_e, cx) => this.onChange(cx));
@@ -359,7 +362,7 @@ export abstract class EditorView extends View {
       return root.child(div().p(16).text_color(t.dim).child(text));
     }
     const model = editorModel({
-      doc: this.doc, readonly: this.readonlyReason, lossy: this.lossy, draftError: this.draftError,
+      doc: this.doc, readonly: this.readonlyReason, lossy: this.lossy, draftError: this.draftError, highlightOff: this.highlightOff,
       draftOffer: this.draftOffer && { savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(), conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline) },
     });
     const header = h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
