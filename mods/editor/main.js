@@ -372,9 +372,9 @@ function languageFor(path) {
   return ALIASES[name.slice(dot + 1).toLowerCase()] ?? "txt";
 }
 var HIGHLIGHT_LIMIT = 1e5;
-function highlightFor(path, length) {
+function highlightFor(path, length, opts = {}) {
   const language = languageFor(path);
-  if (language !== "txt" && length > HIGHLIGHT_LIMIT)
+  if (!opts.force && language !== "txt" && length > HIGHLIGHT_LIMIT)
     return { language: "txt", off: true };
   return { language, off: false };
 }
@@ -444,7 +444,7 @@ function editorModel(i) {
   if (i.readonly)
     banners.push({ kind: "info", text: READONLY_TEXT[i.readonly], actions: [] });
   if (i.highlightOff)
-    banners.push({ kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: [] });
+    banners.push({ kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: ["highlightOn"] });
   if (i.lossy)
     banners.push({ kind: "warn", text: "Some bytes could not be read as UTF-8 and were replaced (U+FFFD).", actions: [] });
   if (d.status === "dirtyExternal" && d.external) {
@@ -567,6 +567,7 @@ class EditorView extends View {
   readonlyReason = null;
   lossy = false;
   highlightOff = false;
+  forceHighlight = false;
   draftOffer = null;
   draftError = null;
   writer = null;
@@ -652,6 +653,7 @@ class EditorView extends View {
     const writable = on === null ? await this.deps.files.canWrite(path, on) : false;
     this.readonlyReason = on !== null ? "remote" : writable === false ? "not-writable" : null;
     this.lossy = cls.kind === "text" && cls.lossy === true;
+    this.forceHighlight = false;
     this.setDoc(open({ path, machine: on, text }));
     this.writer = new DraftWriter({ save: (d) => this.deps.store.save(draftBase(d.machine, d.path, d.ownerKey), d) }, { now: () => Date.now() }, { debounceMs: 250, maxWaitMs: 1000, onError: (e) => {
       this.draftError = String(e);
@@ -669,7 +671,7 @@ class EditorView extends View {
   setDoc(doc) {
     this.code?.release();
     this.doc = doc;
-    const hl = highlightFor(doc.path, doc.text.length);
+    const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight });
     this.highlightOff = hl.off;
     this.code = EditorState.new({
       language: hl.language,
@@ -862,7 +864,13 @@ class EditorView extends View {
       this.doc = acknowledgeExternal(d);
     else if (a === "retry")
       await this.save(cx);
-    else if (a === "reload") {
+    else if (a === "highlightOn") {
+      const sel = this.code?.selected_range?.();
+      this.forceHighlight = true;
+      this.setDoc(d);
+      if (sel)
+        this.code?.set_selected_range?.(sel);
+    } else if (a === "reload") {
       const disk = await this.deps.files.read(d.path, d.machine).catch(() => null);
       if (disk !== null) {
         this.setDoc(reloadFrom(d, disk));
@@ -936,7 +944,8 @@ var ACTION_LABEL = {
   keep: "Keep mine",
   retry: "Retry",
   restore: "Restore draft",
-  discardDraft: "Discard draft"
+  discardDraft: "Discard draft",
+  highlightOn: "Highlight anyway (slower typing)"
 };
 
 // src/entries/editor.ts

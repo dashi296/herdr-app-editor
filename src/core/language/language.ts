@@ -26,9 +26,9 @@ export function languageFor(path: string): string {
  */
 export const HIGHLIGHT_LIMIT = 100_000;
 
-/** Syntax to use for a file of `length` UTF-16 units; `off` when highlighting was switched off for size. */
-export function highlightFor(path: string, length: number): { language: string; off: boolean } {
+/** Syntax to use for a file of `length` UTF-16 units; `off` when highlighting was switched off for size. `force`: the user turned it back on. */
+export function highlightFor(path: string, length: number, opts: { force?: boolean } = {}): { language: string; off: boolean } {
   const language = languageFor(path);
-  if (language !== "txt" && length > HIGHLIGHT_LIMIT) return { language: "txt", off: true };
+  if (!opts.force && language !== "txt" && length > HIGHLIGHT_LIMIT) return { language: "txt", off: true };
   return { language, off: false };
 }

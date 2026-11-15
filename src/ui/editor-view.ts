@@ -77,6 +77,8 @@ export abstract class EditorView extends View {
   private readonlyReason: "remote" | "not-writable" | null = null;
   private lossy = false;
   private highlightOff = false;
+  /** The user turned highlighting back on for this file (spike S8). */
+  private forceHighlight = false;
   private draftOffer: Draft | null = null;
   private draftError: string | null = null;
   private writer: DraftWriter<Draft> | null = null;
@@ -151,6 +153,7 @@ export abstract class EditorView extends View {
     const writable = on === null ? await this.deps.files.canWrite(path, on) : false;
     this.readonlyReason = on !== null ? "remote" : writable === false ? "not-writable" : null;
     this.lossy = cls.kind === "text" && cls.lossy === true;
+    this.forceHighlight = false;
     this.setDoc(open({ path, machine: on, text }));
     this.writer = new DraftWriter<Draft>({ save: (d) => this.deps.store.save(draftBase(d.machine, d.path, d.ownerKey), d) }, { now: () => Date.now() },
       { debounceMs: 250, maxWaitMs: 1000, onError: (e) => { this.draftError = String(e); } });
@@ -169,7 +172,7 @@ export abstract class EditorView extends View {
   private setDoc(doc: Doc) {
     this.code?.release();
     this.doc = doc;
-    const hl = highlightFor(doc.path, doc.text.length);
+    const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight });
     this.highlightOff = hl.off;
     this.code = EditorState.new({
       language: hl.language, value: doc.text, readonly: this.readonlyReason !== null,
@@ -326,6 +329,13 @@ export abstract class EditorView extends View {
     if (!d) return;
     if (a === "keep") this.doc = acknowledgeExternal(d);
     else if (a === "retry") await this.save(cx);
+    else if (a === "highlightOn") {
+      // EditorState has no set_language (R8): rebuild it, keeping the text and the selection.
+      const sel = (this.code as { selected_range?: () => { start: number; end: number } } | null)?.selected_range?.();
+      this.forceHighlight = true;
+      this.setDoc(d);
+      if (sel) (this.code as { set_selected_range?: (r: { start: number; end: number }) => void } | null)?.set_selected_range?.(sel);
+    }
     else if (a === "reload") {
       const disk = await this.deps.files.read(d.path, d.machine).catch(() => null);
       if (disk !== null) { this.setDoc(reloadFrom(d, disk)); await this.dropDraft(); }
@@ -399,4 +409,5 @@ export abstract class EditorView extends View {
 
 const ACTION_LABEL: Record<Action, string> = {
   reload: "Reload", keep: "Keep mine", retry: "Retry", restore: "Restore draft", discardDraft: "Discard draft",
+  highlightOn: "Highlight anyway (slower typing)",
 };

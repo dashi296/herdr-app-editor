@@ -1,7 +1,7 @@
 // What the editor header and banners show (plan §2 "dirty の表示と外部変更"). Pure.
 import { isDirty, type Doc } from "../document/document";
 
-export type Action = "reload" | "keep" | "retry" | "restore" | "discardDraft";
+export type Action = "reload" | "keep" | "retry" | "restore" | "discardDraft" | "highlightOn";
 export interface Banner { kind: "info" | "warn" | "error"; text: string; actions: Action[] }
 export interface EditorModel { title: string; dirty: boolean; banners: Banner[] }
 
@@ -26,7 +26,7 @@ export function editorModel(i: EditorInput): EditorModel {
   const d = i.doc;
   const banners: Banner[] = [];
   if (i.readonly) banners.push({ kind: "info", text: READONLY_TEXT[i.readonly], actions: [] });
-  if (i.highlightOff) banners.push({ kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: [] });
+  if (i.highlightOff) banners.push({ kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: ["highlightOn"] });
   if (i.lossy) banners.push({ kind: "warn", text: "Some bytes could not be read as UTF-8 and were replaced (U+FFFD).", actions: [] });
   if (d.status === "dirtyExternal" && d.external) {
     banners.push(d.external.text === null
