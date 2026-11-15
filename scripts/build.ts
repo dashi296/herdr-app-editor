@@ -2,7 +2,7 @@
 //   bun run scripts/build.ts
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MOD_EDITOR, MOD_FILES, isValidModName } from "../src/core/names";
+import { MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, isValidModName } from "../src/core/names";
 
 const HOST = ["herdr", "gpui-kit", "gpui-base", "fs/promises"];
 const ROOT = join(import.meta.dir, "..");
@@ -11,6 +11,7 @@ interface ModSpec { name: string; entry: string; manifest: Record<string, unknow
 
 const mods: ModSpec[] = [
   { name: MOD_EDITOR, entry: "src/entries/editor.ts", manifest: { place: "none", focusable: true } },
+  { name: MOD_UNINSTALL, entry: "src/entries/editor-uninstall.ts", manifest: { place: "none", overlay: { width: 480, height: 220 } } },
   {
     name: MOD_FILES, entry: "src/entries/editor-files.js", manifest: { place: "none" },
     assets: ["chevron-down.svg", "chevron-right.svg", "file.svg", "folder.svg", "LICENSE"].map((f) => [`vendor/herdr-files/${f}`, f]),
