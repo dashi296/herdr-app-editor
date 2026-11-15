@@ -487,6 +487,12 @@ class DraftWriter {
     while (this.writing)
       await this.writing;
   }
+  discard() {
+    this.timer?.cancel();
+    this.timer = null;
+    this.pending = null;
+    this.firstPendingAt = null;
+  }
   kick() {
     if (this.writing)
       return this.writing;
@@ -610,6 +616,11 @@ class EditorView extends View {
     await this.writer?.flush();
   }
   async openFile(path, on, cx) {
+    if (this.doc && isDirty(this.doc)) {
+      this.writer?.discard();
+      await this.writer?.flush();
+      await this.dropDraft();
+    }
     this.screen = { kind: "loading" };
     cx.notify();
     let text;
@@ -700,8 +711,11 @@ class EditorView extends View {
     try {
       await this.deps.files.write(request.path, request.text, request.expected);
       this.doc = saveSucceeded(this.doc, request.generation);
-      if (!isDirty(this.doc))
+      if (!isDirty(this.doc)) {
+        this.writer?.discard();
+        await this.writer?.flush();
         await this.dropDraft();
+      }
       cx.notify();
       return true;
     } catch (e) {

@@ -41,6 +41,14 @@ export class DraftWriter<T> {
     while (this.writing) await this.writing;
   }
 
+  /** Forgets the pending snapshot (the edits were saved or discarded). A write already running finishes. */
+  discard(): void {
+    this.timer?.cancel();
+    this.timer = null;
+    this.pending = null;
+    this.firstPendingAt = null;
+  }
+
   private kick(): Promise<void> {
     if (this.writing) return this.writing;
     if (!this.pending) return Promise.resolve();

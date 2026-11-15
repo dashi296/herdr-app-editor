@@ -39,7 +39,9 @@ function encodeCommand(verb, payload) {
 // src/entries/editor-files.js
 function location() {
   const space = spaces().find((s) => s.active), f = focused();
-  const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+  let pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+  if (pane && pane.mod === MOD_EDITOR)
+    pane = panes().find((p) => p.tab === pane.tab && p.cwd) ?? pane;
   const on = f?.pane === null ? f.terminal?.includes("/") ? f.terminal.split("/")[0] : null : space?.machine ?? null;
   return { cwd: pane?.cwd || f?.cwd || space?.folder, on, space: space?.id };
 }
@@ -201,7 +203,7 @@ class Files extends View {
     }
     cx.notify();
   }
-  openInEditor(path, cx) {
+  openInEditor(path, cx, newPane = false) {
     const file = `${this.root}/${path}`, on = this.on ?? null;
     const space = spaces().find((s) => s.active);
     const tab = space?.tabs.find((t) => t.active)?.id;
@@ -210,7 +212,7 @@ class Files extends View {
     const all = panes();
     const state = shared(SHARED_KEY) ?? {};
     const registry = pruneRegistry(state.registry ?? {}, all, MOD_EDITOR);
-    const target = pickTarget(registry, all, MOD_EDITOR, tab);
+    const target = newPane ? null : pickTarget(registry, all, MOD_EDITOR, tab);
     const req = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     if (target) {
       run("pane.focus", { pane: target.pane });
@@ -285,7 +287,7 @@ class Files extends View {
       if (out.length >= TOTAL)
         break;
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
-      out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.openInEditor(path, cx)).child(entry.dir ? svg(`mods/${MOD_FILES}/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none()).child(svg(`mods/${MOD_FILES}/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted)).child(div().flex_1().min_w(0).truncate().child(entry.name)).when(Boolean(mark), (el) => el.child(div().text_size(11).text_color(mark === "A" ? t.ansi2 : mark === "D" || mark === "U" ? t.ansi1 : t.blocked).child(mark))));
+      out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((e, cx) => entry.dir ? this.toggle(path, cx) : this.openInEditor(path, cx, Boolean(window()?.platform === "macos" ? e?.modifiers?.platform : e?.modifiers?.control))).child(entry.dir ? svg(`mods/${MOD_FILES}/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none()).child(svg(`mods/${MOD_FILES}/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted)).child(div().flex_1().min_w(0).truncate().child(entry.name)).when(Boolean(mark), (el) => el.child(div().text_size(11).text_color(mark === "A" ? t.ansi2 : mark === "D" || mark === "U" ? t.ansi1 : t.blocked).child(mark))));
       if (entry.dir && open)
         this.rows(path, depth + 1, out, t);
     }

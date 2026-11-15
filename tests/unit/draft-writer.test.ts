@@ -88,4 +88,12 @@ describe("DraftWriter", () => {
     await time.advance(250);
     expect(saved).toEqual(["b"]);
   });
+  test("discard drops the pending snapshot and its timer", async () => {
+    const { time, saved, writer } = setup();
+    writer.update("a", time);
+    writer.discard();
+    await time.advance(2000);
+    await writer.flush();
+    expect(saved).toEqual([]);
+  });
 });

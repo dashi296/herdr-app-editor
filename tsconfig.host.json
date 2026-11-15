@@ -4,5 +4,5 @@
     "types": [],
     "paths": { "herdr": ["./types/herdr.d.ts"] }
   },
-  "include": ["src", "types/gpui-kit.d.ts", "types/gpui-next.d.ts"]
+  "include": ["src", "types/gpui-kit.d.ts"]
 }

@@ -4,6 +4,7 @@
 // (vendor/herdr-files/LICENSE). Changes by herdr-app-editor, marked "herdr-app-editor:":
 //   - clicking a file opens it in the editor mod instead of the read-only preview (plan §3)
 //   - icon paths point at this mod's own folder
+//   - while an editor pane has focus, the tree follows a terminal in the same tab
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
 import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, shared, setShared } from "herdr";
@@ -13,7 +14,10 @@ import { encodeCommand, newPaneAfterSplit, pickTarget, pruneRegistry } from "../
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
-  const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
+  let pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
+  // herdr-app-editor: an editor pane has no folder of its own; follow a terminal in the same tab
+  // instead of falling back to another folder (the tree would jump away while editing).
+  if (pane && pane.mod === MOD_EDITOR) pane = panes().find(p => p.tab === pane.tab && p.cwd) ?? pane;
   const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
   return { cwd: pane?.cwd || f?.cwd || space?.folder, on, space: space?.id };
 }
@@ -136,7 +140,7 @@ export default class Files extends View {
   }
 
   // herdr-app-editor: send the file to the latest focused editor in this tab, or split a new one.
-  openInEditor(path, cx) {
+  openInEditor(path, cx, newPane = false) {
     const file = `${this.root}/${path}`, on = this.on ?? null;
     const space = spaces().find(s => s.active);
     const tab = space?.tabs.find(t => t.active)?.id;
@@ -144,7 +148,7 @@ export default class Files extends View {
     const all = panes();
     const state = shared(SHARED_KEY) ?? {};
     const registry = pruneRegistry(state.registry ?? {}, all, MOD_EDITOR);
-    const target = pickTarget(registry, all, MOD_EDITOR, tab);
+    const target = newPane ? null : pickTarget(registry, all, MOD_EDITOR, tab);
     const req = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     if (target) {
       // pane.focus first: FIFO delivery makes the editor shown when "open" arrives (spike S5).
@@ -200,7 +204,8 @@ export default class Files extends View {
       if (out.length >= TOTAL) break;
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
-        .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.openInEditor(path, cx)) // herdr-app-editor
+        // herdr-app-editor: open in the editor; cmd-click (ctrl-click elsewhere) opens a new editor pane
+        .on_click((e, cx) => entry.dir ? this.toggle(path, cx) : this.openInEditor(path, cx, Boolean(window()?.platform === "macos" ? e?.modifiers?.platform : e?.modifiers?.control)))
         .child(entry.dir ? svg(`mods/${MOD_FILES}/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
         .child(svg(`mods/${MOD_FILES}/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted))
         .child(div().flex_1().min_w(0).truncate().child(entry.name))

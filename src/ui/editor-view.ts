@@ -137,6 +137,8 @@ export abstract class EditorView extends View {
   // ---------- opening ----------
 
   private async openFile(path: string, on: string | null, cx: AsyncContext): Promise<void> {
+    // Leaving a dirty document only happens after "Don't save": its draft goes too.
+    if (this.doc && isDirty(this.doc)) { this.writer?.discard(); await this.writer?.flush(); await this.dropDraft(); }
     this.screen = { kind: "loading" };
     cx.notify();
     let text: string | null;
@@ -208,7 +210,7 @@ export abstract class EditorView extends View {
     try {
       await this.deps.files.write(request.path, request.text, request.expected);
       this.doc = saveSucceeded(this.doc, request.generation);
-      if (!isDirty(this.doc)) await this.dropDraft();
+      if (!isDirty(this.doc)) { this.writer?.discard(); await this.writer?.flush(); await this.dropDraft(); }
       cx.notify();
       return true;
     } catch (e) {
