@@ -5,7 +5,7 @@
 - 改訂1: Codexレビューを反映
 - 改訂2: Codex・Claudeの再レビューを反映
 - 改訂3: Codex・Claudeの3回目のレビューを反映。G3を決定
-- 改訂5（2026-11-16）: スパイク S1・S2・S3・S4・S5 の結果を反映。R17（読み取り専用ファイルの上書き）と、CRLF のファイルの保存前変換（S2b）を追加。§3 の ack とタイムアウトによるフォールバックをやめ、registry は Files が split の前後の差分で登録する方式にした。対象バージョンを決定
+- 改訂5（2026-11-16）: スパイク S1〜S6 の結果を反映。R17（読み取り専用ファイルの上書き）と、CRLF のファイルの保存前変換（S2b）を追加。§3 の ack とタイムアウトによるフォールバックをやめ、registry は Files が split の前後の差分で登録する方式にした。対象バージョンを決定
 - 改訂4（2026-11-16）: Codex・Claudeの4回目のレビューを反映。主な変更は以下。
   - §3: ack の期限付き処理で editor の重複を防ぐ。依頼を送る順序の根拠を訂正。ダイアログの返答経路を `close()` に一本化
   - §5: 共有の索引ファイルをやめ、ディレクトリ構造で引く方式にした
@@ -293,7 +293,7 @@ entries → adapters → ports → core
   - zoom、複数の editor、連続クリック、ダイアログ中の依頼
   - `focused().pane` で自分の pane ID を確定できるか
   - `state.focus()` でキーボードが editor に渡るか
-- **S6**: `watchFolder` の即時性と、macOS / Linux / Windows での失敗パターン
+- **S6**: `watchFolder` の即時性と、macOS / Linux / Windows での失敗パターン → **macOS は確認済み**（約160ms、再帰的に通知される。1 MiB の `readTextFile` は約1ms。`docs/spikes/2026-11-16-s6-watch.md`）。Linux / Windows は未確認
 - **S7**: EditorState を作り直したときに selection を移せるか
 - **S8**: 1 MiB と 400 KB のファイルで、入力遅延とハイライトのコスト。しきい値を決める
 
@@ -323,6 +323,7 @@ entries → adapters → ports → core
     - 次のときに必ず `cancel()` する: パスの変更、非表示になったとき、`window().active` が false になったとき、`close()`。保留中の watch が64の上限を占有し続けないようにするため。
     - resolve の後は、watch の世代とパスが現在と一致するときだけ再armする。
     - 失敗したらポーリングだけで続ける。`.herdr-app-write-*` のイベントは無視する。
+    - 通知は親ディレクトリ以下のすべての変更で届く（S6）。返ったパスに自分のファイルが含まれる場合と、ルートが返った場合だけ再読込する。
   - 外部変更を検知した場合、clean なら自動で再読込する。dirty なら `dirtyExternal` にする（§2）。
 - `ui`: view-model の出力を描画する
 - `editor-files` の fork と §3（S5 の後）

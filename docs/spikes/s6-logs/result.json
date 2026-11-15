@@ -1,0 +1,68 @@
+[
+ {
+  "label": "append to file",
+  "fired": true,
+  "latencyMs": 160,
+  "paths": [
+   "<root>/file.txt"
+  ]
+ },
+ {
+  "label": "atomic replace (write tmp + mv)",
+  "fired": true,
+  "latencyMs": 161,
+  "paths": [
+   "<root>/file.txt",
+   "<root>/.tmp-x"
+  ]
+ },
+ {
+  "label": "nested subdir change",
+  "fired": true,
+  "latencyMs": 159,
+  "paths": [
+   "<root>/sub/deep/nested.txt"
+  ]
+ },
+ {
+  "label": "git-ignored dir change",
+  "fired": true,
+  "latencyMs": 163,
+  "paths": [
+   "<root>/ignored/i.txt"
+  ]
+ },
+ {
+  "label": "delete file",
+  "fired": true,
+  "latencyMs": 165,
+  "paths": [
+   "<root>/gone.txt"
+  ]
+ },
+ {
+  "label": "no change (control)",
+  "fired": false,
+  "timeoutMs": 2000
+ },
+ {
+  "label": "readTextFile big-1mib.txt x5",
+  "ms": [
+   2,
+   1,
+   1,
+   0,
+   1
+  ]
+ },
+ {
+  "label": "readTextFile small.txt x5",
+  "ms": [
+   0,
+   0,
+   0,
+   0,
+   1
+  ]
+ }
+]
