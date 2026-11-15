@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "bun test tests/unit",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.host.json",
     "lint:deps": "depcruise src --config .dependency-cruiser.cjs",
     "ci": "bun run typecheck && bun run test && bun run lint:deps"
   },

@@ -16,9 +16,14 @@ export interface SlotRecord<T> {
 /** 32-bit FNV-1a over UTF-8, as 8 hex digits. Stable across builds (unlike the host's DefaultHasher). */
 export function fnv1a32(text: string): string {
   let h = 0x811c9dc5;
-  for (const byte of new TextEncoder().encode(text)) {
-    h ^= byte;
-    h = Math.imul(h, 0x01000193) >>> 0;
+  const mix = (byte: number) => { h = Math.imul(h ^ byte, 0x01000193) >>> 0; };
+  // UTF-8 by hand: the host runtime is not guaranteed to provide TextEncoder.
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if (c < 0x80) mix(c);
+    else if (c < 0x800) { mix(0xc0 | (c >> 6)); mix(0x80 | (c & 63)); }
+    else if (c < 0x10000) { mix(0xe0 | (c >> 12)); mix(0x80 | ((c >> 6) & 63)); mix(0x80 | (c & 63)); }
+    else { mix(0xf0 | (c >> 18)); mix(0x80 | ((c >> 12) & 63)); mix(0x80 | ((c >> 6) & 63)); mix(0x80 | (c & 63)); }
   }
   return h.toString(16).padStart(8, "0");
 }

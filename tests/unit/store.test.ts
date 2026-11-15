@@ -9,7 +9,10 @@ describe("fnv1a32", () => {
     expect(fnv1a32("a")).toBe("e40c292c");
     expect(fnv1a32("foobar")).toBe("bf9cf968");
   });
-  test("non-ASCII is hashed as UTF-8", () => expect(fnv1a32("é")).not.toBe(fnv1a32("e")));
+  test("non-ASCII is hashed as UTF-8", () => {
+    const viaEncoder = (t: string) => { let h = 0x811c9dc5; for (const b of new TextEncoder().encode(t)) h = Math.imul(h ^ b, 0x01000193) >>> 0; return h.toString(16).padStart(8, "0"); };
+    for (const t of ["é", "日本語", "😀/p/a.ts", "\0/path"]) expect(fnv1a32(t)).toBe(viaEncoder(t));
+  });
 });
 
 describe("parseSlot", () => {
