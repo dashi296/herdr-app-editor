@@ -6,7 +6,8 @@
     "test": "bun test tests/unit",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.host.json",
     "lint:deps": "depcruise src --config .dependency-cruiser.cjs",
-    "ci": "bun run typecheck && bun run test && bun run lint:deps"
+    "ci": "bun run typecheck && bun run test && bun run lint:deps && bun run build && git diff --exit-code -- mods/",
+    "build": "bun run scripts/build.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
