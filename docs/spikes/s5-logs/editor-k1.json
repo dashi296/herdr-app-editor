@@ -1,0 +1,30 @@
+[
+ {
+  "t": 1794761368890,
+  "event": "init",
+  "focusedPane": "p91f91d9361464316ec59e2302fa493a8",
+  "ownPane": null
+ },
+ {
+  "t": 1794761444267,
+  "event": "editor-focus"
+ },
+ {
+  "t": 1794761456615,
+  "event": "key",
+  "keystroke": "cmd-s",
+  "save": true
+ },
+ {
+  "t": 1794761458545,
+  "event": "editor-blur"
+ },
+ {
+  "t": 1794761503591,
+  "event": "editor-focus"
+ },
+ {
+  "t": 1794761509066,
+  "event": "editor-blur"
+ }
+]

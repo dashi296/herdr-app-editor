@@ -2,7 +2,7 @@
 // writes results to data/s5-spike/files.json.
 import { View, div } from "gpui-kit";
 import { v_flex } from "gpui-base";
-import { focused, panes, run, nextCommand, shared, appHome, theme } from "herdr";
+import { focused, panes, run, nextCommand, shared, setShared, appHome, theme } from "herdr";
 import * as fs from "fs/promises";
 
 const ACK_WAIT_MS = 1000;
@@ -13,8 +13,12 @@ export default class S5Files extends View {
     this.acks = new Map();
     this.n = 0;
     const f = focused();
-    this.pane = f?.pane ?? null;
-    this.record("init", { ownPane: this.pane });
+    const mine = panes().filter(p => p.mod === "s5-files");
+    // Spike assumption: exactly one s5-files copy exists.
+    this.pane = mine.length === 1 ? mine[0].pane : null;
+    this.tab = mine.length === 1 ? mine[0].tab : null;
+    this.q = Promise.resolve();
+    this.record("init", { ownPane: this.pane, ownTab: this.tab, focusedAtInit: f?.pane ?? null, copies: mine.length });
     cx.spawn(async cx => {
       for (;;) {
         const c = await nextCommand();
@@ -48,15 +52,38 @@ export default class S5Files extends View {
     return Boolean(ack);
   }
 
+  async truncation(cx) {
+    const dir = `${appHome()}/data/s5-spike`;
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(`${dir}/trunc.txt`, "LONG-LONG-LONG-LONG");
+      await fs.writeFile(`${dir}/trunc.txt`, "short");
+      const back = await fs.readFile(`${dir}/trunc.txt`, "utf8");
+      this.record("truncation", { readBack: back, truncates: back === "short" });
+    } catch (e) { this.record("truncation-error", { error: String(e) }); }
+  }
+
   async scenarios(cx) {
+    if (!this.pane || panes().find(p => p.pane === this.pane)?.tab !== this.tab) { this.record("abort", { reason: "own pane unknown" }); return; }
     this.record("run-start", { ownPane: this.pane, editors: this.editors() });
-    if (this.editors().length === 0) {
-      run("pane.split", { pane: this.pane, direction: "right", mod: "s5-editor", props: { key: "k1", file: "src/a.ts" } });
-      await cx.sleep(1500);
-      this.record("after-split", { editors: this.editors(), panes: panes().filter(p => p.tab === panes().find(q => q.pane === this.pane)?.tab).map(p => ({ pane: p.pane, mod: p.mod, focused: p.focused, zoomed: p.zoomed })) });
+    await this.truncation(cx);
+    let key = "k1", editorPane = null;
+    const before = new Set(panes().filter(p => p.mod === "s5-editor").map(p => p.pane));
+    run("pane.split", { pane: this.pane, direction: "right", mod: "s5-editor", props: { key, file: "src/a.ts" } });
+    for (let i = 0; i < 20 && !editorPane; i++) {
+      await cx.sleep(100);
+      editorPane = panes().find(p => p.mod === "s5-editor" && !before.has(p.pane))?.pane ?? null;
     }
-    const [key, entry] = this.editors()[0] ?? [];
-    if (!key) { this.record("abort", { reason: "no editor registered" }); return; }
+    const created = panes().find(p => p.pane === editorPane);
+    this.record("after-split", { editorPane, sameTab: created?.tab === this.tab, focusedNow: focused()?.pane ?? null, editorFocused: created?.focused ?? null });
+    if (!created || created.tab !== this.tab) {
+      if (created) run("pane.close", { pane: editorPane });
+      this.record("abort", { reason: "editor not created in own tab" });
+      return;
+    }
+    // Files registers the mapping itself: it knows the pane it just created.
+    setShared("s5.registry", { [key]: { pane: editorPane, lastFocus: Date.now() } });
+    const entry = { pane: editorPane };
     // 1. plain focus+open
     await this.openVia(cx, key, entry.pane, "focus+open");
     // 2. payload containing '.' and ':' characters and a long body
@@ -85,9 +112,11 @@ export default class S5Files extends View {
     this.log.push({ t: Date.now(), event, ...data });
     const dir = `${appHome()}/data/s5-spike`;
     const body = JSON.stringify(this.log, null, 1);
-    try {
-      fs.mkdir(dir, { recursive: true }).then(() => fs.writeFile(`${dir}/files.json`, body)).catch(e => { this.writeError = String(e); });
-    } catch (e) { this.writeError = String(e); }
+    // Serialized: concurrent writeFile calls corrupted the log in the first run.
+    this.q = this.q.then(async () => {
+      try { await fs.mkdir(dir, { recursive: true }); await fs.writeFile(`${dir}/files.json`, body); }
+      catch (e) { this.writeError = String(e); }
+    });
   }
 
   render(_cx) {

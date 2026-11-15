@@ -1,0 +1,107 @@
+[
+ {
+  "t": 1794761290124,
+  "event": "init",
+  "ownPane": "pe8b744b3209e783630b8f832fcc6f1d7",
+  "ownTab": "tb7fa931c1ba30f4949b02d841dd9bc28d",
+  "focusedAtInit": "pe8b744b3209e783630b8f832fcc6f1d7",
+  "copies": 1
+ },
+ {
+  "t": 1794761297707,
+  "event": "run-start",
+  "ownPane": "pe8b744b3209e783630b8f832fcc6f1d7",
+  "editors": []
+ },
+ {
+  "t": 1794761297708,
+  "event": "truncation",
+  "readBack": "short",
+  "truncates": true
+ },
+ {
+  "t": 1794761297850,
+  "event": "after-split",
+  "editorPane": "p5353e26e19e28850cda5024d6b8d0b74",
+  "sameTab": true,
+  "focusedNow": "p5353e26e19e28850cda5024d6b8d0b74",
+  "editorFocused": true
+ },
+ {
+  "t": 1794761297852,
+  "event": "ack",
+  "req": "r1-1794761297850",
+  "editorAge": 1
+ },
+ {
+  "t": 1794761298949,
+  "event": "result",
+  "label": "focus+open",
+  "req": "r1-1794761297850",
+  "acked": true,
+  "latency": 2
+ },
+ {
+  "t": 1794761298956,
+  "event": "ack",
+  "req": "r2-1794761298950",
+  "editorAge": 5
+ },
+ {
+  "t": 1794761299961,
+  "event": "result",
+  "label": "payload-special",
+  "req": "r2-1794761298950",
+  "acked": true,
+  "latency": 6
+ },
+ {
+  "t": 1794761300862,
+  "event": "zoomed",
+  "panes": [
+   {
+    "pane": "pe8b744b3209e783630b8f832fcc6f1d7",
+    "zoomed": true
+   },
+   {
+    "pane": "p5353e26e19e28850cda5024d6b8d0b74",
+    "zoomed": false
+   }
+  ]
+ },
+ {
+  "t": 1794761301964,
+  "event": "result",
+  "label": "zoomed-behind:focus+open",
+  "req": "r4-1794761300862",
+  "acked": false,
+  "latency": null
+ },
+ {
+  "t": 1794761301965,
+  "event": "after-zoom-open",
+  "panes": [
+   {
+    "pane": "pe8b744b3209e783630b8f832fcc6f1d7",
+    "zoomed": false,
+    "focused": false
+   },
+   {
+    "pane": "p5353e26e19e28850cda5024d6b8d0b74",
+    "zoomed": true,
+    "focused": true
+   }
+  ]
+ },
+ {
+  "t": 1794761302991,
+  "event": "result",
+  "label": "stale",
+  "req": "r5-stale",
+  "acked": false
+ },
+ {
+  "t": 1794761302991,
+  "event": "run-end"
+ }
+]
