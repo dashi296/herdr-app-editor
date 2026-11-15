@@ -19,8 +19,8 @@ describe("languageFor (P0 extensions)", () => {
 });
 
 describe("highlightFor (spike S8: syntect re-parses the whole file on every edit)", () => {
-  test("small files are highlighted", () => expect(highlightFor("a.ts", 100_000)).toEqual({ language: "js", off: false }));
-  test("over 100 KB: plain text", () => expect(highlightFor("a.ts", 100_001)).toEqual({ language: "txt", off: true }));
+  test("small files are highlighted", () => expect(highlightFor("a.ts", 30_000)).toEqual({ language: "js", off: false }));
+  test("over 30 KB: plain text", () => expect(highlightFor("a.ts", 30_001)).toEqual({ language: "txt", off: true }));
   test("plain text is never reported as switched off", () => expect(highlightFor("a.txt", 900_000)).toEqual({ language: "txt", off: false }));
   test("the user can turn it back on for a large file", () => expect(highlightFor("a.ts", 900_000, { force: true })).toEqual({ language: "js", off: false }));
 });

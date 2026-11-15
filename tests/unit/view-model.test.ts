@@ -32,7 +32,7 @@ describe("editorModel", () => {
   });
   test("highlighting switched off for size", () => {
     expect(editorModel({ ...base, doc, highlightOff: true }).banners).toEqual([
-      { kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: ["highlightOn"] },
+      { kind: "info", text: "Syntax highlighting is off for files over 30 KB to keep typing fast.", actions: ["highlightOn"] },
     ]);
   });
   test("read-only, lossy and draft banners", () => {

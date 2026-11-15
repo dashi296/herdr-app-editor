@@ -371,7 +371,7 @@ function languageFor(path) {
     return "txt";
   return ALIASES[name.slice(dot + 1).toLowerCase()] ?? "txt";
 }
-var HIGHLIGHT_LIMIT = 1e5;
+var HIGHLIGHT_LIMIT = 30000;
 function highlightFor(path, length, opts = {}) {
   const language = languageFor(path);
   if (!opts.force && language !== "txt" && length > HIGHLIGHT_LIMIT)
@@ -444,7 +444,7 @@ function editorModel(i) {
   if (i.readonly)
     banners.push({ kind: "info", text: READONLY_TEXT[i.readonly], actions: [] });
   if (i.highlightOff)
-    banners.push({ kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: ["highlightOn"] });
+    banners.push({ kind: "info", text: "Syntax highlighting is off for files over 30 KB to keep typing fast.", actions: ["highlightOn"] });
   if (i.lossy)
     banners.push({ kind: "warn", text: "Some bytes could not be read as UTF-8 and were replaced (U+FFFD).", actions: [] });
   if (d.status === "dirtyExternal" && d.external) {

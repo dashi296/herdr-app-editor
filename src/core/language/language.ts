@@ -21,10 +21,11 @@ export function languageFor(path: string): string {
 }
 
 /**
- * Highlighting re-parses the whole document on every edit (syntax.rs; spike S8: 50 KB slight lag,
- * 400 KB clearly slow, 1 MiB heavy; plain text stays fast). Larger files open as plain text.
+ * Highlighting re-parses the whole document on every keystroke (syntax.rs). Measured on Herdr 0.1.16
+ * (docs/spikes/2026-11-16-s8-bench.md): about 1.8 ms per KB per keystroke, so 30 KB ≈ 55 ms.
+ * Larger files open as plain text; the user can turn highlighting back on.
  */
-export const HIGHLIGHT_LIMIT = 100_000;
+export const HIGHLIGHT_LIMIT = 30_000;
 
 /** Syntax to use for a file of `length` UTF-16 units; `off` when highlighting was switched off for size. `force`: the user turned it back on. */
 export function highlightFor(path: string, length: number, opts: { force?: boolean } = {}): { language: string; off: boolean } {

@@ -26,7 +26,7 @@ export function editorModel(i: EditorInput): EditorModel {
   const d = i.doc;
   const banners: Banner[] = [];
   if (i.readonly) banners.push({ kind: "info", text: READONLY_TEXT[i.readonly], actions: [] });
-  if (i.highlightOff) banners.push({ kind: "info", text: "Syntax highlighting is off for files over 100 KB to keep typing fast.", actions: ["highlightOn"] });
+  if (i.highlightOff) banners.push({ kind: "info", text: "Syntax highlighting is off for files over 30 KB to keep typing fast.", actions: ["highlightOn"] });
   if (i.lossy) banners.push({ kind: "warn", text: "Some bytes could not be read as UTF-8 and were replaced (U+FFFD).", actions: [] });
   if (d.status === "dirtyExternal" && d.external) {
     banners.push(d.external.text === null
