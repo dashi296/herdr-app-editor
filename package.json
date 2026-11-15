@@ -1,0 +1,16 @@
+{
+  "name": "herdr-app-editor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test tests/unit",
+    "typecheck": "tsc --noEmit",
+    "lint:deps": "depcruise src --config .dependency-cruiser.cjs",
+    "ci": "bun run typecheck && bun run test && bun run lint:deps"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "dependency-cruiser": "^18.7.2",
+    "typescript": "5"
+  }
+}
