@@ -5,7 +5,7 @@
 - 改訂1: Codexレビューを反映
 - 改訂2: Codex・Claudeの再レビューを反映
 - 改訂3: Codex・Claudeの3回目のレビューを反映。G3を決定
-- 改訂5（2026-11-16）: スパイク S1・S5 の結果を反映。§3 の ack とタイムアウトによるフォールバックをやめ、registry は Files が split の前後の差分で登録する方式にした。対象バージョンを決定
+- 改訂5（2026-11-16）: スパイク S1・S2・S3・S4・S5 の結果を反映。R17（読み取り専用ファイルの上書き）を追加。§3 の ack とタイムアウトによるフォールバックをやめ、registry は Files が split の前後の差分で登録する方式にした。対象バージョンを決定
 - 改訂4（2026-11-16）: Codex・Claudeの4回目のレビューを反映。主な変更は以下。
   - §3: ack の期限付き処理で editor の重複を防ぐ。依頼を送る順序の根拠を訂正。ダイアログの返答経路を `close()` に一本化
   - §5: 共有の索引ファイルをやめ、ディレクトリ構造で引く方式にした
@@ -79,7 +79,7 @@ herdr-app-editor/
 ├─ src/                       # TypeScript（開発用。配布されない）
 │  ├─ core/                   # 純粋ロジック。外部モジュールも他の内部層もimportしない
 │  │  ├─ document/            # 状態遷移、revision、I/O世代
-│  │  ├─ text/                # NUL/U+FFFD判定, EOL/BOM/末尾改行の検出と復元
+│  │  ├─ text/                # NUL/U+FFFD判定、改行コードの検出（S2b の結果次第で、Enter の挿入を補正）
 │  │  ├─ language/            # 拡張子 → syntax名
 │  │  ├─ theme/               # エディタテーマJSON検証 → syntax色マップ
 │  │  ├─ routing/             # §3 のメッセージ型・期限・split差分による登録・ダイアログの状態機械
@@ -169,13 +169,14 @@ entries → adapters → ports → core
 | R14 | 非同期の読み書きの結果が、ファイル切替や編集・保存の後に届く | `defaults/herdr.d.ts:27-32`、`src/mod_files.rs:78` | §4 Step 2「I/O世代」 |
 | R15 | ターミナルのレイアウトブロックにフォーカスがある状態で、pane を指定せずに split するとエラーになる | `src/window.rs:2944-2950`、`defaults/herdr.d.ts:259-261` | `pane.split` には常に `pane` を明示する |
 | R16 | `pane.focus` は対象 pane の space と tab を選び、zoom 中なら zoom を対象 pane に移す | `src/model.rs:128-133, 507-512` | zoom 中に Files から開くと、zoom が editor に移り、zoom していた terminal が隠れる。RECIPE に記載する |
+| R17 | **読み取り専用のファイル（444）でも、ディレクトリが書き込み可能なら `writeTextFile` が上書きしてしまう**（rename で置き換わる） | S4（`docs/spikes/2026-11-16-s2-s4.md`） | mod API には stat がない。ファイルを開くときと保存の前に、ローカルでは `exec("test", ["-w", path])` で書き込み権限を確かめる。書けなければ読み取り専用で表示し、保存も止める。Windows の手段は Windows で確認する |
 
 ### 保存時の競合防止
 
 `writeTextFile(path, text, expected)` は、`expected` とディスク上の内容が一致しない書き込みを拒否する（`src/mod_files.rs:27-73`）。ただし次の制約がある。
 
 - 厳密な CAS ではない（rename 直前の隙。`:69-72`）。新規作成はアトミックではない（`:39-45`）。→ G3。
-- ソース上、明示的に移されるのはパーミッションだけ（`:62`）。所有者・ACL・xattr・hard link は、S4 の実機結果が出るまで未保証として扱う。
+- 保たれるのはパーミッションだけ（`:62`）。**macOS の実機（S4）では、hard link は切れ、独自の xattr は消えた。** symlink は保たれ、リンク先が更新される。所有者と ACL は未確認。RECIPE に記載する。
 - 一時ファイルは対象と同じディレクトリに作られる（`:47-60`）。
 
 ### 保存失敗の扱い
@@ -278,7 +279,7 @@ entries → adapters → ports → core
 ### Step 1: 検証スパイク
 
 - **S1**: バンドルした `main.js` が `herdr-app check` を通り、hot reload されるか
-- **S2**: `EditorState.value()` を経由して CRLF・BOM・末尾改行・タブがそのまま保持されるか。正規化される場合は `core/text` で復元する。改行コードが混在するファイルは読み取り専用にする
+- **S2**: `EditorState.value()` を経由して CRLF・BOM・末尾改行・タブがそのまま保持されるか → **保持される**（混在や単独の CR も同じ）。復元処理と、改行コードが混在するファイルを読み取り専用にする規則は不要。CRLF のファイルで Enter を押したときに挿入される改行（S2b）は未確認
 - **S3**: ルート要素の `on_key_down` で cmd-s / ctrl-s を受け取れるか。keys.json の global に割り当てた場合との優先順位も確かめる
   - cmd-s / ctrl-s には既定のバインドがない（`defaults/keys.json`、`keys.macos.json`）。
   - gpui はキーバインドを `on_key_down` より先に処理する（推定）。
