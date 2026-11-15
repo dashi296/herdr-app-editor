@@ -1,0 +1,31 @@
+[
+ {
+  "t": 1794763278371,
+  "event": "open",
+  "value": "\"line1\\r\\nline2\\r\\n\""
+ },
+ {
+  "t": 1794763315122,
+  "event": "change",
+  "value": "\"line1\\r\\nline2\\r\\n\\n\""
+ },
+ {
+  "t": 1794763319278,
+  "event": "change",
+  "value": "\"line1\\r\\nline2\\r\\n\\nx\""
+ },
+ {
+  "t": 1794763331196,
+  "event": "dialog-open",
+  "req": "d1794763331196",
+  "id": "o144"
+ },
+ {
+  "t": 1794763333201,
+  "event": "reply",
+  "req": "d1794763331196",
+  "choice": "cancel",
+  "via": "close()",
+  "matches": true
+ }
+]
