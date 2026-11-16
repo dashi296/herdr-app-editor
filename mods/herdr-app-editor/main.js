@@ -852,9 +852,37 @@ class DraftWriter {
   }
 }
 
+// src/core/pane-state/pane-state.ts
+var PANE_STATE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+function isStalePaneState(state, now) {
+  if (!state || typeof state.seenAt !== "number")
+    return true;
+  return now - state.seenAt > PANE_STATE_MAX_AGE_MS;
+}
+
+// src/ports/pane-states.ts
+var PANES_DIR = "panes";
+async function sweepPaneStates(store, selfKey, now) {
+  const removed = [];
+  for (const key of await store.owners(PANES_DIR)) {
+    if (key === selfKey)
+      continue;
+    try {
+      const base = paneBase(key);
+      if (!isStalePaneState(await store.load(base), now))
+        continue;
+      await store.remove(base);
+      removed.push(key);
+    } catch {}
+  }
+  return removed;
+}
+
 // src/ui/editor-view.ts
 var POLL_LOCAL_MS = 3000;
 var POLL_REMOTE_MS = 1e4;
+var SWEEP_DELAY_MS = 60000;
+var swept = false;
 var isChecking = () => herdr.checking?.() ?? false;
 function readShared() {
   const v = shared(SHARED_KEY);
@@ -970,6 +998,13 @@ class EditorView extends View {
       }
     });
     cx.timer.every(1000, (cx2) => this.maybePoll(cx2));
+    cx.spawn(async (cx2) => {
+      await cx2.sleep(SWEEP_DELAY_MS);
+      if (swept)
+        return;
+      swept = true;
+      await sweepPaneStates(this.deps.store, this.key, Date.now()).catch(() => {});
+    });
   }
   async close(_cx) {
     if (this.role === "dialog") {
@@ -1038,7 +1073,7 @@ class EditorView extends View {
         this.draftError = String(e);
       }
     });
-    this.deps.store.save(paneBase(this.key), { file: path, on }).catch(() => {});
+    this.deps.store.save(paneBase(this.key), { file: path, on, seenAt: Date.now() }).catch(() => {});
     const found = await this.findDraft(path, on, text);
     if (stale())
       return;

@@ -35,6 +35,7 @@ import {
   type SaveRequest,
 } from "../core/document/document";
 import { draftBase, draftDir, paneBase } from "../core/draft/paths";
+import type { PaneState } from "../core/pane-state/pane-state";
 import type { Registry as ExtensionRegistry } from "../core/extensions/registry";
 import { highlightFor, languageFor } from "../core/language/language";
 import { BUILTIN_THEMES } from "../core/theme/builtin";
@@ -61,6 +62,7 @@ import { classifyText, prepareForSave } from "../core/text/text";
 import { editorModel, type Action } from "../core/view-model/editor";
 import { DraftWriter, type Timer } from "../ports/draft-writer";
 import type { FileStore } from "../ports/file-store";
+import { sweepPaneStates } from "../ports/pane-states";
 import type { SlotStore } from "../ports/slot-store";
 
 export interface EditorDeps {
@@ -88,6 +90,14 @@ const POLL_LOCAL_MS = 3000,
   POLL_REMOTE_MS = 10000;
 
 /** master-only host APIs, looked up at run time so the mod still loads on 0.1.15 (spike Step 0). */
+/**
+ * Stale pane records are swept once per module load (shared by every copy), a while after start.
+ * Every copy waits and the first one to wake sweeps: the host can create a copy and drop it at once
+ * (seen on 0.1.16: two inits for one pane), and a dropped copy's task never wakes.
+ */
+const SWEEP_DELAY_MS = 60_000;
+let swept = false;
+
 const isChecking = (): boolean => (herdr as { checking?: () => boolean }).checking?.() ?? false;
 
 function readShared(): SharedState {
@@ -201,7 +211,7 @@ export abstract class EditorView extends View {
       let target = initial;
       const seq = this.openSeq;
       try {
-        const saved = await this.deps.store.load<{ file: string; on: string | null }>(paneBase(this.key));
+        const saved = await this.deps.store.load<PaneState>(paneBase(this.key));
         if (saved?.file) target = saved;
       } catch {
         /* fall back to props */
@@ -223,6 +233,13 @@ export abstract class EditorView extends View {
       }
     });
     cx.timer.every(1000, (cx) => this.maybePoll(cx));
+    // After the delay every live editor has opened its file and so refreshed its own record.
+    cx.spawn(async (cx) => {
+      await cx.sleep(SWEEP_DELAY_MS);
+      if (swept) return;
+      swept = true;
+      await sweepPaneStates(this.deps.store, this.key, Date.now()).catch(() => {});
+    });
   }
 
   override async close(_cx: AsyncContext): Promise<void> {
@@ -305,7 +322,7 @@ export abstract class EditorView extends View {
         },
       },
     );
-    this.deps.store.save(paneBase(this.key), { file: path, on }).catch(() => {});
+    this.deps.store.save<PaneState>(paneBase(this.key), { file: path, on, seenAt: Date.now() }).catch(() => {});
     const found = await this.findDraft(path, on, text);
     if (stale()) return;
     this.draftOffer = found.draft;
