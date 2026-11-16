@@ -4,8 +4,17 @@
 import { detectEol } from "../text/text";
 import { validateTheme, type EditorTheme } from "../theme/theme";
 
-export interface OpenedFile { path: string; machine: string | null; text: string; language: string }
-export interface SavingFile { path: string; machine: string | null; text: string }
+export interface OpenedFile {
+  path: string;
+  machine: string | null;
+  text: string;
+  language: string;
+}
+export interface SavingFile {
+  path: string;
+  machine: string | null;
+  text: string;
+}
 
 export type OpenResult = { language?: string; readonly?: string } | void | undefined;
 export type SaveResult = { text: string } | { cancel: string } | void | undefined;
@@ -40,7 +49,9 @@ export function createRegistry(extensions: Extension[]): Registry {
           const r = await ext.onFileOpen({ ...file, language });
           if (r?.language) language = r.language;
           if (r?.readonly && !readonly) readonly = r.readonly;
-        } catch (e) { messages.push(`${ext.name}: ${String(e)}`); }
+        } catch (e) {
+          messages.push(`${ext.name}: ${String(e)}`);
+        }
       }
       return { language, readonly, messages };
     },
@@ -52,8 +63,11 @@ export function createRegistry(extensions: Extension[]): Registry {
       for (const ext of extensions) {
         if (!ext.beforeSave) continue;
         let r: SaveResult;
-        try { r = await ext.beforeSave({ ...file, text }); }
-        catch (e) { return { ok: false, reason: `${ext.name} failed: ${String(e)}` }; }
+        try {
+          r = await ext.beforeSave({ ...file, text });
+        } catch (e) {
+          return { ok: false, reason: `${ext.name} failed: ${String(e)}` };
+        }
         if (r === undefined || r === null) continue;
         if (typeof r !== "object") return { ok: false, reason: `${ext.name} returned invalid text` };
         if ("cancel" in r) return { ok: false, reason: `${ext.name}: ${String(r.cancel)}` };
@@ -69,8 +83,14 @@ export function createRegistry(extensions: Extension[]): Registry {
       for (const ext of extensions) {
         (ext.themes ?? []).forEach((raw, i) => {
           const r = validateTheme(raw);
-          if (!r.ok) { messages.push(`${ext.name}: theme #${i + 1}: ${r.errors.join("; ")}`); return; }
-          if (themes.some((t) => t.name === r.theme.name)) { messages.push(`${ext.name}: theme "${r.theme.name}" already exists`); return; }
+          if (!r.ok) {
+            messages.push(`${ext.name}: theme #${i + 1}: ${r.errors.join("; ")}`);
+            return;
+          }
+          if (themes.some((t) => t.name === r.theme.name)) {
+            messages.push(`${ext.name}: theme "${r.theme.name}" already exists`);
+            return;
+          }
           themes.push(r.theme);
         });
       }

@@ -35,11 +35,13 @@ describe("ownership (review B5)", () => {
     mkdirSync(join(home, "mods/editor/sub"));
     writeFileSync(join(home, "mods/editor/sub/jsconfig.json"), "{}");
     expect(verifyOwned(home, targets, hashes)).toEqual([
-      "added: mods/editor/.env", "added: mods/editor/custom.d.ts", "added: mods/editor/sub/jsconfig.json",
+      "added: mods/editor/.env",
+      "added: mods/editor/custom.d.ts",
+      "added: mods/editor/sub/jsconfig.json",
     ]);
   });
   test("a generated name that was installed is checked like any file", () => {
-    writeFileSync(join(home, "mods/editor/jsconfig.json"), "{\"ours\":1}");
+    writeFileSync(join(home, "mods/editor/jsconfig.json"), '{"ours":1}');
     // install.ts passes the files of the package being installed as `include`.
     const hashes = hashTargets(home, targets, { "mods/editor/jsconfig.json": "" });
     writeFileSync(join(home, "mods/editor/jsconfig.json"), "{}");

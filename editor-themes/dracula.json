@@ -2,8 +2,17 @@
   "name": "Dracula",
   "appearance": "dark",
   "syntax": {
-    "keyword": "#ff79c6", "string": "#f1fa8c", "string.escape": "#ff79c6", "comment": "#6272a4",
-    "function": "#50fa7b", "type": "#8be9fd", "number": "#bd93f9", "constant": "#bd93f9",
-    "boolean": "#bd93f9", "variable": "#f8f8f2", "operator": "#ff79c6", "punctuation": "#f8f8f2"
+    "keyword": "#ff79c6",
+    "string": "#f1fa8c",
+    "string.escape": "#ff79c6",
+    "comment": "#6272a4",
+    "function": "#50fa7b",
+    "type": "#8be9fd",
+    "number": "#bd93f9",
+    "constant": "#bd93f9",
+    "boolean": "#bd93f9",
+    "variable": "#f8f8f2",
+    "operator": "#ff79c6",
+    "punctuation": "#f8f8f2"
   }
 }

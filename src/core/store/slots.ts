@@ -16,14 +16,26 @@ export interface SlotRecord<T> {
 /** 32-bit FNV-1a over UTF-8, as 8 hex digits. Stable across builds (unlike the host's DefaultHasher). */
 export function fnv1a32(text: string): string {
   let h = 0x811c9dc5;
-  const mix = (byte: number) => { h = Math.imul(h ^ byte, 0x01000193) >>> 0; };
+  const mix = (byte: number) => {
+    h = Math.imul(h ^ byte, 0x01000193) >>> 0;
+  };
   // UTF-8 by hand: the host runtime is not guaranteed to provide TextEncoder.
   for (const ch of text) {
     const c = ch.codePointAt(0)!;
     if (c < 0x80) mix(c);
-    else if (c < 0x800) { mix(0xc0 | (c >> 6)); mix(0x80 | (c & 63)); }
-    else if (c < 0x10000) { mix(0xe0 | (c >> 12)); mix(0x80 | ((c >> 6) & 63)); mix(0x80 | (c & 63)); }
-    else { mix(0xf0 | (c >> 18)); mix(0x80 | ((c >> 12) & 63)); mix(0x80 | ((c >> 6) & 63)); mix(0x80 | (c & 63)); }
+    else if (c < 0x800) {
+      mix(0xc0 | (c >> 6));
+      mix(0x80 | (c & 63));
+    } else if (c < 0x10000) {
+      mix(0xe0 | (c >> 12));
+      mix(0x80 | ((c >> 6) & 63));
+      mix(0x80 | (c & 63));
+    } else {
+      mix(0xf0 | (c >> 18));
+      mix(0x80 | ((c >> 12) & 63));
+      mix(0x80 | ((c >> 6) & 63));
+      mix(0x80 | (c & 63));
+    }
   }
   return h.toString(16).padStart(8, "0");
 }
@@ -32,7 +44,10 @@ function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
     const o = value as Record<string, unknown>;
-    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
+    return `{${Object.keys(o)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
 }
@@ -51,17 +66,27 @@ export function makeRecord<T>(seq: number, payload: T | null): SlotRecord<T> {
 export function parseSlot<T>(raw: string | null): SlotRecord<T> | null {
   if (raw == null) return null;
   let r: SlotRecord<T>;
-  try { r = JSON.parse(raw); } catch { return null; }
-  if (!r || typeof r !== "object" || r.schema !== SCHEMA || !Number.isInteger(r.seq) || typeof r.deleted !== "boolean") return null;
+  try {
+    r = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!r || typeof r !== "object" || r.schema !== SCHEMA || !Number.isInteger(r.seq) || typeof r.deleted !== "boolean")
+    return null;
   if (r.deleted !== (r.payload === null)) return null;
   return checksumOf(r) === r.checksum ? r : null;
 }
 
-export interface Current<T> { slot: SlotName | null; payload: T | null; seq: number }
+export interface Current<T> {
+  slot: SlotName | null;
+  payload: T | null;
+  seq: number;
+}
 
 /** What is stored: the valid slot with the highest seq. A tombstone there means nothing. */
 export function pickCurrent<T>(a: string | null, b: string | null): Current<T> {
-  const ra = parseSlot<T>(a), rb = parseSlot<T>(b);
+  const ra = parseSlot<T>(a),
+    rb = parseSlot<T>(b);
   const best = !ra ? (rb ? "b" : null) : !rb ? "a" : ra.seq >= rb.seq ? "a" : "b";
   if (!best) return { slot: null, payload: null, seq: 0 };
   const r = (best === "a" ? ra : rb)!;
@@ -71,7 +96,11 @@ export function pickCurrent<T>(a: string | null, b: string | null): Current<T> {
 const other = (s: SlotName): SlotName => (s === "a" ? "b" : "a");
 
 /** Where to write the next record so the current one survives a torn write. */
-export function planWrite<T>(a: string | null, b: string | null, payload: T | null): { target: SlotName; record: SlotRecord<T> } {
+export function planWrite<T>(
+  a: string | null,
+  b: string | null,
+  payload: T | null,
+): { target: SlotName; record: SlotRecord<T> } {
   const cur = pickCurrent<T>(a, b);
   return { target: cur.slot ? other(cur.slot) : "a", record: makeRecord(cur.seq + 1, payload) };
 }

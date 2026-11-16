@@ -2,8 +2,15 @@
 // pane.close on a tab's last pane becomes tab.close, and tab.close on a space's last tab becomes
 // space.close without `confirmed` (src/window.rs), so the plan closes at the right level itself.
 
-export interface PaneLite { pane: string; mod?: string; tab: string }
-export interface SpaceLite { id: string; tabs: { id: string }[] }
+export interface PaneLite {
+  pane: string;
+  mod?: string;
+  tab: string;
+}
+export interface SpaceLite {
+  id: string;
+  tabs: { id: string }[];
+}
 
 export type CloseStep =
   | { kind: "pane"; pane: string }
@@ -25,8 +32,14 @@ export function planClose(panes: PaneLite[], spaces: SpaceLite[], mod: string): 
     const editors = inTab.filter((p) => p.mod === mod);
     if (!editors.length) continue;
     const space = spaceOf.get(tab);
-    if (!space) { for (const e of editors) steps.push({ kind: "unreachable", pane: e.pane }); continue; }
-    if (!onlyEditors(tab)) { for (const e of editors) steps.push({ kind: "pane", pane: e.pane }); continue; }
+    if (!space) {
+      for (const e of editors) steps.push({ kind: "unreachable", pane: e.pane });
+      continue;
+    }
+    if (!onlyEditors(tab)) {
+      for (const e of editors) steps.push({ kind: "pane", pane: e.pane });
+      continue;
+    }
     if (space.tabs.every((t) => onlyEditors(t.id))) {
       if (!handledSpaces.has(space.id)) steps.push({ kind: "space", space: space.id, confirm: true });
       handledSpaces.add(space.id);

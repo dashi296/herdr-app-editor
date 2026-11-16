@@ -28,7 +28,9 @@ export class SlotStore {
     const next = prev.then(op, op);
     const tail = next.catch(() => {});
     queues.set(base, tail);
-    void tail.then(() => { if (queues.get(base) === tail) queues.delete(base); });
+    void tail.then(() => {
+      if (queues.get(base) === tail) queues.delete(base);
+    });
     return next;
   }
 

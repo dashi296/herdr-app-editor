@@ -36,7 +36,9 @@ export class HerdrSlotIO implements SlotIO {
     try {
       const path = this.abs(relDir);
       if ((await fs.exists(path)) && (await fs.readdir(path)).length === 0) await fs.rmdir(path);
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
   }
 
   async list(relDir: string): Promise<string[]> {

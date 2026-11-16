@@ -2,8 +2,17 @@
   "name": "Nord",
   "appearance": "dark",
   "syntax": {
-    "keyword": "#81a1c1", "string": "#a3be8c", "string.escape": "#ebcb8b", "comment": "#616e88",
-    "function": "#88c0d0", "type": "#8fbcbb", "number": "#b48ead", "constant": "#b48ead",
-    "boolean": "#81a1c1", "variable": "#d8dee9", "operator": "#81a1c1", "punctuation": "#eceff4"
+    "keyword": "#81a1c1",
+    "string": "#a3be8c",
+    "string.escape": "#ebcb8b",
+    "comment": "#616e88",
+    "function": "#88c0d0",
+    "type": "#8fbcbb",
+    "number": "#b48ead",
+    "constant": "#b48ead",
+    "boolean": "#81a1c1",
+    "variable": "#d8dee9",
+    "operator": "#81a1c1",
+    "punctuation": "#eceff4"
   }
 }

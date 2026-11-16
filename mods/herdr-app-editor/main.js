@@ -19,7 +19,11 @@ class HerdrFileStore {
     try {
       if (window()?.platform === "windows") {
         const literal = "'" + path.replace(/['\u2018\u2019\u201a\u201b]/g, "$&$&") + "'";
-        const r2 = await exec("powershell", ["-NoProfile", "-Command", `if ((Get-Item -LiteralPath ${literal} -ErrorAction Stop).IsReadOnly) { exit 1 } else { exit 0 }`], { timeout: 1e4 });
+        const r2 = await exec("powershell", [
+          "-NoProfile",
+          "-Command",
+          `if ((Get-Item -LiteralPath ${literal} -ErrorAction Stop).IsReadOnly) { exit 1 } else { exit 0 }`
+        ], { timeout: 1e4 });
         return r2.code === 0 ? true : r2.code === 1 ? false : null;
       }
       const r = await exec("test", ["-w", path], { timeout: 5000 });
@@ -148,7 +152,14 @@ function validateTheme(input) {
   }
   if (errors.length)
     return { ok: false, errors };
-  return { ok: true, theme: { name: o.name, appearance: o.appearance, syntax } };
+  return {
+    ok: true,
+    theme: {
+      name: o.name,
+      appearance: o.appearance,
+      syntax
+    }
+  };
 }
 function resolveSyntax(theme, herdr) {
   const pick = (k) => herdr[k] ?? herdr.foreground ?? "#888888";
@@ -418,11 +429,34 @@ class SlotStore {
 import { View, div } from "gpui-kit";
 import { Editor, EditorState, h_flex, v_flex } from "gpui-base";
 import * as herdr from "herdr";
-import { closeOverlay, focused, nextCommand, openOverlay, panes, props, run, settings, shared, setShared, spaces, theme, window as window2 } from "herdr";
+import {
+  closeOverlay,
+  focused,
+  nextCommand,
+  openOverlay,
+  panes,
+  props,
+  run,
+  settings,
+  shared,
+  setShared,
+  spaces,
+  theme,
+  window as window2
+} from "herdr";
 
 // src/core/document/document.ts
 function open(f) {
-  return { path: f.path, machine: f.machine, eol: detectEol(f.text), baseline: f.text, text: f.text, revision: 0, generation: (f.after ?? 0) + 1, status: "clean" };
+  return {
+    path: f.path,
+    machine: f.machine,
+    eol: detectEol(f.text),
+    baseline: f.text,
+    text: f.text,
+    revision: 0,
+    generation: (f.after ?? 0) + 1,
+    status: "clean"
+  };
 }
 function isDirty(d) {
   return prepareForSave(d.text, d.eol) !== d.baseline;
@@ -441,7 +475,10 @@ function beginSave(d) {
   const text = prepareForSave(d.text, d.eol);
   const { external: _e, failure: _f, ...rest } = d;
   const state = { ...rest, status: "saving", saving: text, generation: d.generation + 1 };
-  return { state, request: { path: d.path, machine: d.machine, text, expected: d.baseline, generation: state.generation } };
+  return {
+    state,
+    request: { path: d.path, machine: d.machine, text, expected: d.baseline, generation: state.generation }
+  };
 }
 function saveSucceeded(d, generation) {
   if (generation !== d.generation || d.saving === undefined)
@@ -474,7 +511,16 @@ function pollResult(d, token, disk) {
   return { ...d, status: "dirtyExternal", external: { text: disk } };
 }
 function reloadFrom(d, disk) {
-  return { path: d.path, machine: d.machine, eol: detectEol(disk), baseline: disk, text: disk, revision: d.revision + 1, generation: d.generation + 1, status: "clean" };
+  return {
+    path: d.path,
+    machine: d.machine,
+    eol: detectEol(disk),
+    baseline: disk,
+    text: disk,
+    revision: d.revision + 1,
+    generation: d.generation + 1,
+    status: "clean"
+  };
 }
 function acknowledgeExternal(d) {
   if (d.status !== "dirtyExternal" || !d.external)
@@ -675,7 +721,10 @@ function handleReply(s, reply) {
 function interacted(s) {
   if (!s.pending)
     return { state: s, effects: [] };
-  return { state: idleRouting(), effects: s.pending.overlay ? [{ type: "closeDialog", overlay: s.pending.overlay }] : [] };
+  return {
+    state: idleRouting(),
+    effects: s.pending.overlay ? [{ type: "closeDialog", overlay: s.pending.overlay }] : []
+  };
 }
 
 // src/core/view-model/editor.ts
@@ -694,9 +743,17 @@ function editorModel(i) {
   for (const note of i.extensionNotes ?? [])
     banners.push({ kind: "warn", text: note, actions: [] });
   if (i.highlightOff)
-    banners.push({ kind: "info", text: "Syntax highlighting is off for files over 30 KB to keep typing fast.", actions: ["highlightOn"] });
+    banners.push({
+      kind: "info",
+      text: "Syntax highlighting is off for files over 30 KB to keep typing fast.",
+      actions: ["highlightOn"]
+    });
   if (i.lossy)
-    banners.push({ kind: "warn", text: "Some bytes could not be read as UTF-8 and were replaced (U+FFFD).", actions: [] });
+    banners.push({
+      kind: "warn",
+      text: "Some bytes could not be read as UTF-8 and were replaced (U+FFFD).",
+      actions: []
+    });
   if (d.status === "dirtyExternal" && d.external) {
     banners.push(d.external.text === null ? { kind: "warn", text: "The file was deleted on disk. Your edits are not saved.", actions: [] } : { kind: "warn", text: "The file changed on disk. Your edits are not saved.", actions: ["reload", "keep"] });
   }
@@ -707,7 +764,11 @@ function editorModel(i) {
   }
   if (i.draftOffer) {
     const tail = i.draftOffer.conflict ? " The file has changed since then." : "";
-    banners.push({ kind: "info", text: `An unsaved draft from ${i.draftOffer.savedAt} exists.${tail}`, actions: ["restore", "discardDraft"] });
+    banners.push({
+      kind: "info",
+      text: `An unsaved draft from ${i.draftOffer.savedAt} exists.${tail}`,
+      actions: ["restore", "discardDraft"]
+    });
   }
   if (i.draftError)
     banners.push({ kind: "warn", text: `Drafts cannot be saved: ${i.draftError}`, actions: [] });
@@ -802,7 +863,20 @@ function readShared() {
 function timerFrom(cx) {
   return { now: () => Date.now(), after: (ms, fn) => cx.timer.after(ms, () => fn()) };
 }
-var PALETTE_KEYS = ["background", "foreground", "border", "dim", "muted", "accent", "blocked", "raised", "surface", "popover", "input", "hover"];
+var PALETTE_KEYS = [
+  "background",
+  "foreground",
+  "border",
+  "dim",
+  "muted",
+  "accent",
+  "blocked",
+  "raised",
+  "surface",
+  "popover",
+  "input",
+  "hover"
+];
 function palette() {
   const t = theme();
   const fg = t.foreground ?? "#cccccc";
@@ -957,9 +1031,13 @@ class EditorView extends View {
     this.forceHighlight = false;
     this.draftOffer = null;
     this.setDoc(open({ path, machine: on, text, after: Math.max(this.lastGeneration, this.doc?.generation ?? 0) }));
-    this.writer = new DraftWriter({ save: (d) => this.deps.store.save(draftBase(d.machine, d.path, d.ownerKey), d) }, { now: () => Date.now() }, { debounceMs: 250, maxWaitMs: 1000, onError: (e) => {
-      this.draftError = String(e);
-    } });
+    this.writer = new DraftWriter({ save: (d) => this.deps.store.save(draftBase(d.machine, d.path, d.ownerKey), d) }, { now: () => Date.now() }, {
+      debounceMs: 250,
+      maxWaitMs: 1000,
+      onError: (e) => {
+        this.draftError = String(e);
+      }
+    });
     this.deps.store.save(paneBase(this.key), { file: path, on }).catch(() => {});
     const found = await this.findDraft(path, on, text);
     if (stale())
@@ -978,7 +1056,10 @@ class EditorView extends View {
     this.code?.release();
     this.doc = doc;
     this.lastGeneration = Math.max(this.lastGeneration, doc.generation);
-    const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight, ...this.languageOverride ? { language: this.languageOverride } : {} });
+    const hl = highlightFor(doc.path, doc.text.length, {
+      force: this.forceHighlight,
+      ...this.languageOverride ? { language: this.languageOverride } : {}
+    });
     const applied = chosenTheme(this.themes);
     this.appliedTheme = { name: applied.name, key: JSON.stringify(applied.syntax) };
     this.highlightOff = hl.off;
@@ -1017,7 +1098,14 @@ class EditorView extends View {
     this.doc = edit(this.doc, this.code.value());
     const d = this.doc;
     if (isDirty(d)) {
-      this.writer?.update({ machine: d.machine, path: d.path, ownerKey: this.key, baselineHash: fnv1a32(d.baseline), text: d.text, savedAt: Date.now() }, timerFrom(cx));
+      this.writer?.update({
+        machine: d.machine,
+        path: d.path,
+        ownerKey: this.key,
+        baselineHash: fnv1a32(d.baseline),
+        text: d.text,
+        savedAt: Date.now()
+      }, timerFrom(cx));
     } else {
       this.writer?.discard();
       this.dropDraft();
@@ -1036,7 +1124,11 @@ class EditorView extends View {
       cx.notify();
       return false;
     }
-    const hooked = await this.deps.extensions.beforeSave({ path: target.path, machine: target.machine, text: prepareForSave(target.text, target.eol) });
+    const hooked = await this.deps.extensions.beforeSave({
+      path: target.path,
+      machine: target.machine,
+      text: prepareForSave(target.text, target.eol)
+    });
     if (this.doc !== target)
       return false;
     if (!hooked.ok) {
@@ -1051,9 +1143,19 @@ class EditorView extends View {
       this.doc = applyFormatted(target, hooked.text);
       const f = this.doc;
       if (isDirty(f))
-        this.writer?.update({ machine: f.machine, path: f.path, ownerKey: this.key, baselineHash: fnv1a32(f.baseline), text: f.text, savedAt: Date.now() }, timerFrom(cx));
+        this.writer?.update({
+          machine: f.machine,
+          path: f.path,
+          ownerKey: this.key,
+          baselineHash: fnv1a32(f.baseline),
+          text: f.text,
+          savedAt: Date.now()
+        }, timerFrom(cx));
       if (sel)
-        this.code?.set_selected_range?.({ start: Math.min(sel.start, hooked.text.length), end: Math.min(sel.end, hooked.text.length) });
+        this.code?.set_selected_range?.({
+          start: Math.min(sel.start, hooked.text.length),
+          end: Math.min(sel.end, hooked.text.length)
+        });
     }
     const { state, request } = beginSave(this.doc);
     this.doc = state;
@@ -1293,11 +1395,17 @@ class EditorView extends View {
       highlightOff: this.highlightOff,
       ...this.readonlyNote ? { readonlyNote: this.readonlyNote } : {},
       extensionNotes: [...this.themeNotes, ...this.extensionNotes],
-      draftOffer: this.draftOffer && { savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(), conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline) }
+      draftOffer: this.draftOffer && {
+        savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(),
+        conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline)
+      }
     });
     const header = h_flex().id("editor-header").h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).on_mouse_down("left", () => this.handle?.focus()).child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : "")).child(div().font_semibold().child(model.title)).child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path)).child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : "")).child(h_flex().id("theme-switch").h(22).px(8).items_center().rounded(5).border_1().border_color(t.border).text_size(11).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => {
       const s = readShared();
-      setShared(SHARED_KEY, { ...s, theme: nextTheme(chosenTheme(this.themes).name, themeNames(this.themes, isDark())) });
+      setShared(SHARED_KEY, {
+        ...s,
+        theme: nextTheme(chosenTheme(this.themes).name, themeNames(this.themes, isDark()))
+      });
       this.maybeRetheme();
       cx.notify();
     }).child(`Theme: ${this.appliedTheme?.name ?? HERDR_THEME}`));
@@ -1332,7 +1440,11 @@ var ACTION_LABEL = {
 // src/entries/editor.ts
 class Editor2 extends EditorView {
   makeDeps() {
-    return { files: new HerdrFileStore, store: new SlotStore(new HerdrSlotIO), extensions: createRegistry(EXTENSIONS) };
+    return {
+      files: new HerdrFileStore,
+      store: new SlotStore(new HerdrSlotIO),
+      extensions: createRegistry(EXTENSIONS)
+    };
   }
 }
 export {

@@ -2,14 +2,32 @@
 //   bun run scripts/build.ts && bun run scripts/install.ts [--no-switch] [--force]
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LAYOUT, MODS, REPO, appHome, dataDir, exists, manifestPath, readManifest, status, switchLayout } from "./lib/herdr";
+import {
+  LAYOUT,
+  MODS,
+  REPO,
+  appHome,
+  dataDir,
+  exists,
+  manifestPath,
+  readManifest,
+  status,
+  switchLayout,
+} from "./lib/herdr";
 import { hashTargets, listFiles, verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 const st = status();
-if (!st) { console.error("Herdr is not running. Start it, then run this again."); process.exit(1); }
+if (!st) {
+  console.error("Herdr is not running. Start it, then run this again.");
+  process.exit(1);
+}
 
-for (const m of MODS) if (!exists(join(REPO, "mods", m, "main.js"))) { console.error(`mods/${m} is not built. Run: bun run build`); process.exit(1); }
+for (const m of MODS)
+  if (!exists(join(REPO, "mods", m, "main.js"))) {
+    console.error(`mods/${m} is not built. Run: bun run build`);
+    process.exit(1);
+  }
 
 const targets = [...MODS.map((m) => `mods/${m}`), `layouts/${LAYOUT}.json`];
 const previous = readManifest();
@@ -29,7 +47,9 @@ if (previous && !previous.hashes && !force) {
 if (previous?.hashes && !force) {
   const changed = verifyOwned(home, previous.files, previous.hashes);
   if (changed.length) {
-    console.error(`Stopped: installed files were changed since the last install and would be overwritten:\n  ${changed.join("\n  ")}`);
+    console.error(
+      `Stopped: installed files were changed since the last install and would be overwritten:\n  ${changed.join("\n  ")}`,
+    );
     console.error("Back them up, then run again with --force.");
     process.exit(1);
   }
@@ -42,7 +62,19 @@ const previousLayout = previous?.previousLayout ?? (st.layout && st.layout !== L
 mkdirSync(dataDir(), { recursive: true });
 // Every file of the package is ours, even one named like a file Herdr generates.
 const shipped = Object.fromEntries(listFiles(REPO, targets).map((f) => [f, ""]));
-writeFileSync(manifestPath(), JSON.stringify({ installedAt: new Date().toISOString(), files: targets, previousLayout, hashes: hashTargets(home, targets, shipped) }, null, 2) + "\n");
+writeFileSync(
+  manifestPath(),
+  JSON.stringify(
+    {
+      installedAt: new Date().toISOString(),
+      files: targets,
+      previousLayout,
+      hashes: hashTargets(home, targets, shipped),
+    },
+    null,
+    2,
+  ) + "\n",
+);
 console.log(`Installed into ${home}:\n  ${targets.join("\n  ")}`);
 
 if (!process.argv.includes("--no-switch")) {
