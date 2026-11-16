@@ -2,9 +2,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, NS } from "../../src/core/names";
+import { LAYOUT_NAME, MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, NS } from "../../src/core/names";
 
-export const LAYOUT = "editor";
+export const LAYOUT = LAYOUT_NAME;
 export const MODS = [MOD_EDITOR, MOD_FILES, MOD_UNINSTALL];
 export const REPO = join(import.meta.dir, "..", "..");
 
