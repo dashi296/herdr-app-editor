@@ -9,22 +9,23 @@ import {
   type Doc, type Reread, type SaveRequest,
 } from "../core/document/document";
 import { draftBase, draftDir, paneBase } from "../core/draft/paths";
-import { highlightFor } from "../core/language/language";
+import type { Registry as ExtensionRegistry } from "../core/extensions/registry";
+import { highlightFor, languageFor } from "../core/language/language";
 import { BUILTIN_THEMES } from "../core/theme/builtin";
-import { HERDR_THEME, nextTheme, pickTheme, resolveSyntax, themeNames } from "../core/theme/theme";
+import { HERDR_THEME, nextTheme, pickTheme, resolveSyntax, themeNames, type EditorTheme } from "../core/theme/theme";
 import { MOD_EDITOR, SHARED_KEY } from "../core/names";
 import {
   acceptOpen, decodeCommand, dialogOpened, encodeCommand, handleOpen, handleReply, idleRouting, interacted, pruneRegistry,
   type Choice, type Effect, type OpenMessage, type Registry, type Routing,
 } from "../core/routing/routing";
 import { fnv1a32 } from "../core/store/slots";
-import { classifyText } from "../core/text/text";
+import { classifyText, prepareForSave } from "../core/text/text";
 import { editorModel, type Action } from "../core/view-model/editor";
 import { DraftWriter, type Timer } from "../ports/draft-writer";
 import type { FileStore } from "../ports/file-store";
 import type { SlotStore } from "../ports/slot-store";
 
-export interface EditorDeps { files: FileStore; store: SlotStore }
+export interface EditorDeps { files: FileStore; store: SlotStore; extensions: ExtensionRegistry }
 
 interface Draft { machine: string | null; path: string; ownerKey: string; baselineHash: string; text: string; savedAt: number }
 interface SharedState { registry?: Registry; theme?: string }
@@ -63,8 +64,8 @@ function palette(): Palette {
 const isDark = () => settings().dark !== false;
 
 /** The chosen editor theme (shared by every editor), if it suits the app's appearance, and its colors now. */
-function chosenTheme(): { name: string; syntax: Record<string, string> } {
-  const picked = pickTheme(BUILTIN_THEMES, readShared().theme, isDark());
+function chosenTheme(themes: EditorTheme[]): { name: string; syntax: Record<string, string> } {
+  const picked = pickTheme(themes, readShared().theme, isDark());
   return { name: picked?.name ?? HERDR_THEME, syntax: resolveSyntax(picked, theme()) };
 }
 
@@ -78,13 +79,21 @@ export abstract class EditorView extends View {
   private screen: Screen = { kind: "loading" };
   private doc: Doc | null = null;
   private code: EditorState | null = null;
-  private readonlyReason: "remote" | "not-writable" | "unknown" | null = null;
+  private readonlyReason: "remote" | "not-writable" | "unknown" | "extension" | null = null;
   /** Highest document generation this view has used; the next document starts above it (review B1). */
   private lastGeneration = 0;
   /** Bumped by every openFile; an older open stops at its next await (review B1). */
   private openSeq = 0;
   private lossy = false;
   private highlightOff = false;
+  /** Built-in themes plus valid extension themes. */
+  private themes: EditorTheme[] = BUILTIN_THEMES;
+  /** Language chosen by an onFileOpen extension for the current file. */
+  private languageOverride: string | undefined;
+  private readonlyNote: string | undefined;
+  /** Messages from extensions (failing hooks, invalid themes, a cancelled save). */
+  private extensionNotes: string[] = [];
+  private themeNotes: string[] = [];
   /** The theme the current EditorState was built with (EditorState cannot change colors: R8). */
   private appliedTheme: { name: string; key: string } | null = null;
   /** The user turned highlighting back on for this file (spike S8). */
@@ -117,6 +126,9 @@ export abstract class EditorView extends View {
     }
     this.key = p.key;
     this.deps = this.makeDeps();
+    const t = this.deps.extensions.themes(BUILTIN_THEMES);
+    this.themes = t.themes;
+    this.themeNotes = t.messages;
     const initial = { file: typeof p.file === "string" ? p.file : null, on: typeof p.on === "string" ? p.on : null };
     cx.spawn(async (cx) => {
       let target = initial;
@@ -176,8 +188,13 @@ export abstract class EditorView extends View {
     if (cls.kind === "binary") { this.showMessage(`${path} looks like a binary file.`); return; }
     const writable = on === null ? await this.deps.files.canWrite(path, on) : false;
     if (stale()) return;
+    const ext = await this.deps.extensions.fileOpened({ path, machine: on, text, language: languageFor(path) });
+    if (stale()) return;
+    this.languageOverride = ext.language === languageFor(path) ? undefined : ext.language;
+    this.readonlyNote = ext.readonly ?? undefined;
+    this.extensionNotes = ext.messages;
     // Saving needs a confirmed write permission: writeTextFile replaces read-only files (R17, review B4).
-    this.readonlyReason = on !== null ? "remote" : writable === true ? null : writable === false ? "not-writable" : "unknown";
+    this.readonlyReason = on !== null ? "remote" : writable === true ? (ext.readonly ? "extension" : null) : writable === false ? "not-writable" : "unknown";
     this.lossy = cls.kind === "text" && cls.lossy === true;
     this.forceHighlight = false;
     this.draftOffer = null;
@@ -203,8 +220,8 @@ export abstract class EditorView extends View {
     this.code?.release();
     this.doc = doc;
     this.lastGeneration = Math.max(this.lastGeneration, doc.generation);
-    const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight });
-    const applied = chosenTheme();
+    const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight, ...(this.languageOverride ? { language: this.languageOverride } : {}) });
+    const applied = chosenTheme(this.themes);
     this.appliedTheme = { name: applied.name, key: JSON.stringify(applied.syntax) };
     this.highlightOff = hl.off;
     this.code = EditorState.new({
@@ -253,7 +270,19 @@ export abstract class EditorView extends View {
     const writable = await this.deps.files.canWrite(target.path, target.machine);
     if (this.doc !== target) return false; // edited or switched while checking: the user saves again
     if (writable !== true) { this.readonlyReason = writable === false ? "not-writable" : "unknown"; cx.notify(); return false; }
-    const { state, request } = beginSave(this.doc);
+    // beforeSave extensions see exactly the text that would be written (plan §4 Step 5).
+    const hooked = await this.deps.extensions.beforeSave({ path: target.path, machine: target.machine, text: prepareForSave(target.text, target.eol) });
+    if (this.doc !== target) return false; // edited or switched while the hooks ran
+    if (!hooked.ok) { this.extensionNotes = [`Save cancelled. ${hooked.reason}`]; cx.notify(); return false; }
+    this.extensionNotes = [];
+    if (hooked.text !== prepareForSave(target.text, target.eol)) {
+      // An extension rewrote the text (e.g. a formatter): show what will be saved.
+      const sel = (this.code as { selected_range?: () => { start: number; end: number } } | null)?.selected_range?.();
+      this.code?.set_value(hooked.text);
+      this.doc = edit(target, hooked.text);
+      if (sel) (this.code as { set_selected_range?: (r: { start: number; end: number }) => void } | null)?.set_selected_range?.({ start: Math.min(sel.start, hooked.text.length), end: Math.min(sel.end, hooked.text.length) });
+    }
+    const { state, request } = beginSave(this.doc!);
     this.doc = state;
     cx.notify();
     try {
@@ -311,7 +340,7 @@ export abstract class EditorView extends View {
   private maybeRetheme() {
     const d = this.doc, applied = this.appliedTheme;
     if (!d || !applied || this.screen.kind !== "ready") return;
-    const want = chosenTheme();
+    const want = chosenTheme(this.themes);
     if (want.name === applied.name && JSON.stringify(want.syntax) === applied.key) return;
     if (want.name === applied.name && isDirty(d)) return;
     this.rebuildKeepingSelection(d);
@@ -457,6 +486,7 @@ export abstract class EditorView extends View {
     }
     const model = editorModel({
       doc: this.doc, readonly: this.readonlyReason, lossy: this.lossy, draftError: this.draftError, highlightOff: this.highlightOff,
+      ...(this.readonlyNote ? { readonlyNote: this.readonlyNote } : {}), extensionNotes: [...this.themeNotes, ...this.extensionNotes],
       draftOffer: this.draftOffer && { savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(), conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline) },
     });
     const header = h_flex().id("editor-header").h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
@@ -470,7 +500,7 @@ export abstract class EditorView extends View {
         .text_size(11).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
         .on_click((_e, cx) => {
           const s = readShared();
-          setShared(SHARED_KEY, { ...s, theme: nextTheme(chosenTheme().name, themeNames(BUILTIN_THEMES, isDark())) });
+          setShared(SHARED_KEY, { ...s, theme: nextTheme(chosenTheme(this.themes).name, themeNames(this.themes, isDark())) });
           this.maybeRetheme(); // this copy at once; the others on their next timer tick
           cx.notify();
         })

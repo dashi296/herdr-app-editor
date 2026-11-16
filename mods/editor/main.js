@@ -76,6 +76,178 @@ class HerdrSlotIO {
   }
 }
 
+// src/core/text/text.ts
+function detectEol(text) {
+  let crlf = 0;
+  let lf = 0;
+  for (let i = 0;i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 13) {
+      if (text.charCodeAt(i + 1) === 10) {
+        crlf++;
+        i++;
+      } else
+        return "mixed";
+    } else if (c === 10)
+      lf++;
+  }
+  if (crlf && lf)
+    return "mixed";
+  if (crlf)
+    return "crlf";
+  if (lf)
+    return "lf";
+  return "none";
+}
+function prepareForSave(text, original) {
+  if (original !== "crlf")
+    return text;
+  return text.replace(/\r?\n/g, `\r
+`);
+}
+function classifyText(text, where) {
+  if (text.includes("\x00"))
+    return { kind: "binary" };
+  if (where.remote && text.includes("�"))
+    return { kind: "text", lossy: true };
+  return { kind: "text" };
+}
+
+// src/core/theme/theme.ts
+var SYNTAX_KEYS = [
+  "keyword",
+  "string",
+  "string.escape",
+  "comment",
+  "function",
+  "type",
+  "number",
+  "constant",
+  "boolean",
+  "variable",
+  "operator",
+  "punctuation"
+];
+var HERDR_THEME = "Herdr";
+var HEX = /^#[0-9a-fA-F]{6}$/;
+function validateTheme(input) {
+  const errors = [];
+  const o = input && typeof input === "object" ? input : {};
+  if (typeof o.name !== "string" || !o.name.trim())
+    errors.push("name must be a non-empty string");
+  if (o.appearance !== "dark" && o.appearance !== "light")
+    errors.push('appearance must be "dark" or "light"');
+  const syntax = o.syntax && typeof o.syntax === "object" ? o.syntax : null;
+  if (!syntax)
+    errors.push("syntax must be an object");
+  for (const [k, v] of Object.entries(syntax ?? {})) {
+    if (!SYNTAX_KEYS.includes(k))
+      errors.push(`syntax.${k} is not a syntax category`);
+    else if (typeof v !== "string" || !HEX.test(v))
+      errors.push(`syntax.${k} must be a #rrggbb color, got ${JSON.stringify(v)}`);
+  }
+  if (errors.length)
+    return { ok: false, errors };
+  return { ok: true, theme: { name: o.name, appearance: o.appearance, syntax } };
+}
+function resolveSyntax(theme, herdr) {
+  const pick = (k) => herdr[k] ?? herdr.foreground ?? "#888888";
+  const base = {
+    keyword: pick("ansi5"),
+    string: pick("ansi2"),
+    "string.escape": pick("ansi6"),
+    comment: pick("dim"),
+    function: pick("ansi4"),
+    type: pick("ansi3"),
+    number: pick("ansi1"),
+    constant: pick("ansi6"),
+    boolean: pick("ansi1"),
+    variable: pick("foreground"),
+    operator: pick("ansi6"),
+    punctuation: pick("foreground")
+  };
+  return { ...base, ...theme?.syntax ?? {} };
+}
+function nextTheme(current, names) {
+  const i = names.indexOf(current);
+  return names[i < 0 ? 0 : (i + 1) % names.length];
+}
+function themeNames(themes, dark) {
+  return [HERDR_THEME, ...themes.filter((t) => t.appearance === (dark ? "dark" : "light")).map((t) => t.name)];
+}
+function pickTheme(themes, chosen, dark) {
+  const t = themes.find((x) => x.name === chosen);
+  return t && t.appearance === (dark ? "dark" : "light") ? t : null;
+}
+
+// src/core/extensions/registry.ts
+function createRegistry(extensions) {
+  return {
+    async fileOpened(file) {
+      let language = file.language;
+      let readonly = null;
+      const messages = [];
+      for (const ext of extensions) {
+        if (!ext.onFileOpen)
+          continue;
+        try {
+          const r = await ext.onFileOpen({ ...file, language });
+          if (r?.language)
+            language = r.language;
+          if (r?.readonly && !readonly)
+            readonly = r.readonly;
+        } catch (e) {
+          messages.push(`${ext.name}: ${String(e)}`);
+        }
+      }
+      return { language, readonly, messages };
+    },
+    async beforeSave(file) {
+      let text = file.text;
+      for (const ext of extensions) {
+        if (!ext.beforeSave)
+          continue;
+        let r;
+        try {
+          r = await ext.beforeSave({ ...file, text });
+        } catch (e) {
+          return { ok: false, reason: `${ext.name} failed: ${String(e)}` };
+        }
+        if (!r)
+          continue;
+        if ("cancel" in r)
+          return { ok: false, reason: `${ext.name}: ${r.cancel}` };
+        if (typeof r.text !== "string")
+          return { ok: false, reason: `${ext.name} returned invalid text` };
+        text = r.text;
+      }
+      return { ok: true, text };
+    },
+    themes(builtin) {
+      const themes = [...builtin];
+      const messages = [];
+      for (const ext of extensions) {
+        (ext.themes ?? []).forEach((raw, i) => {
+          const r = validateTheme(raw);
+          if (!r.ok) {
+            messages.push(`${ext.name}: theme #${i + 1}: ${r.errors.join("; ")}`);
+            return;
+          }
+          if (themes.some((t) => t.name === r.theme.name)) {
+            messages.push(`${ext.name}: theme "${r.theme.name}" already exists`);
+            return;
+          }
+          themes.push(r.theme);
+        });
+      }
+      return { themes, messages };
+    }
+  };
+}
+
+// src/extensions/index.ts
+var EXTENSIONS = [];
+
 // src/core/store/slots.ts
 var SCHEMA = 1;
 function fnv1a32(text) {
@@ -246,43 +418,6 @@ import { Editor, EditorState, h_flex, v_flex } from "gpui-base";
 import * as herdr from "herdr";
 import { closeOverlay, focused, nextCommand, openOverlay, panes, props, run, settings, shared, setShared, spaces, theme, window as window2 } from "herdr";
 
-// src/core/text/text.ts
-function detectEol(text) {
-  let crlf = 0;
-  let lf = 0;
-  for (let i = 0;i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    if (c === 13) {
-      if (text.charCodeAt(i + 1) === 10) {
-        crlf++;
-        i++;
-      } else
-        return "mixed";
-    } else if (c === 10)
-      lf++;
-  }
-  if (crlf && lf)
-    return "mixed";
-  if (crlf)
-    return "crlf";
-  if (lf)
-    return "lf";
-  return "none";
-}
-function prepareForSave(text, original) {
-  if (original !== "crlf")
-    return text;
-  return text.replace(/\r?\n/g, `\r
-`);
-}
-function classifyText(text, where) {
-  if (text.includes("\x00"))
-    return { kind: "binary" };
-  if (where.remote && text.includes("�"))
-    return { kind: "text", lossy: true };
-  return { kind: "text" };
-}
-
 // src/core/document/document.ts
 function open(f) {
   return { path: f.path, machine: f.machine, eol: detectEol(f.text), baseline: f.text, text: f.text, revision: 0, generation: (f.after ?? 0) + 1, status: "clean" };
@@ -392,7 +527,7 @@ function languageFor(path) {
 }
 var HIGHLIGHT_LIMIT = 30000;
 function highlightFor(path, length, opts = {}) {
-  const language = languageFor(path);
+  const language = opts.language ?? languageFor(path);
   if (!opts.force && language !== "txt" && length > HIGHLIGHT_LIMIT)
     return { language: "txt", off: true };
   return { language, off: false };
@@ -474,73 +609,6 @@ var one_dark_default = {
   }
 };
 
-// src/core/theme/theme.ts
-var SYNTAX_KEYS = [
-  "keyword",
-  "string",
-  "string.escape",
-  "comment",
-  "function",
-  "type",
-  "number",
-  "constant",
-  "boolean",
-  "variable",
-  "operator",
-  "punctuation"
-];
-var HERDR_THEME = "Herdr";
-var HEX = /^#[0-9a-fA-F]{6}$/;
-function validateTheme(input) {
-  const errors = [];
-  const o = input && typeof input === "object" ? input : {};
-  if (typeof o.name !== "string" || !o.name.trim())
-    errors.push("name must be a non-empty string");
-  if (o.appearance !== "dark" && o.appearance !== "light")
-    errors.push('appearance must be "dark" or "light"');
-  const syntax = o.syntax && typeof o.syntax === "object" ? o.syntax : null;
-  if (!syntax)
-    errors.push("syntax must be an object");
-  for (const [k, v] of Object.entries(syntax ?? {})) {
-    if (!SYNTAX_KEYS.includes(k))
-      errors.push(`syntax.${k} is not a syntax category`);
-    else if (typeof v !== "string" || !HEX.test(v))
-      errors.push(`syntax.${k} must be a #rrggbb color, got ${JSON.stringify(v)}`);
-  }
-  if (errors.length)
-    return { ok: false, errors };
-  return { ok: true, theme: { name: o.name, appearance: o.appearance, syntax } };
-}
-function resolveSyntax(theme, herdr) {
-  const pick = (k) => herdr[k] ?? herdr.foreground ?? "#888888";
-  const base = {
-    keyword: pick("ansi5"),
-    string: pick("ansi2"),
-    "string.escape": pick("ansi6"),
-    comment: pick("dim"),
-    function: pick("ansi4"),
-    type: pick("ansi3"),
-    number: pick("ansi1"),
-    constant: pick("ansi6"),
-    boolean: pick("ansi1"),
-    variable: pick("foreground"),
-    operator: pick("ansi6"),
-    punctuation: pick("foreground")
-  };
-  return { ...base, ...theme?.syntax ?? {} };
-}
-function nextTheme(current, names) {
-  const i = names.indexOf(current);
-  return names[i < 0 ? 0 : (i + 1) % names.length];
-}
-function themeNames(themes, dark) {
-  return [HERDR_THEME, ...themes.filter((t) => t.appearance === (dark ? "dark" : "light")).map((t) => t.name)];
-}
-function pickTheme(themes, chosen, dark) {
-  const t = themes.find((x) => x.name === chosen);
-  return t && t.appearance === (dark ? "dark" : "light") ? t : null;
-}
-
 // src/core/theme/builtin.ts
 var BUILTIN_THEMES = [one_dark_default, dracula_default, github_light_default, nord_default].map((raw) => {
   const r = validateTheme(raw);
@@ -612,8 +680,12 @@ var READONLY_TEXT = {
 function editorModel(i) {
   const d = i.doc;
   const banners = [];
-  if (i.readonly)
+  if (i.readonly === "extension")
+    banners.push({ kind: "info", text: `Read-only: ${i.readonlyNote ?? "set by an extension"}`, actions: [] });
+  else if (i.readonly)
     banners.push({ kind: "info", text: READONLY_TEXT[i.readonly], actions: [] });
+  for (const note of i.extensionNotes ?? [])
+    banners.push({ kind: "warn", text: note, actions: [] });
   if (i.highlightOff)
     banners.push({ kind: "info", text: "Syntax highlighting is off for files over 30 KB to keep typing fast.", actions: ["highlightOn"] });
   if (i.lossy)
@@ -737,8 +809,8 @@ function palette() {
   return out;
 }
 var isDark = () => settings().dark !== false;
-function chosenTheme() {
-  const picked = pickTheme(BUILTIN_THEMES, readShared().theme, isDark());
+function chosenTheme(themes) {
+  const picked = pickTheme(themes, readShared().theme, isDark());
   return { name: picked?.name ?? HERDR_THEME, syntax: resolveSyntax(picked, theme()) };
 }
 
@@ -755,6 +827,11 @@ class EditorView extends View {
   openSeq = 0;
   lossy = false;
   highlightOff = false;
+  themes = BUILTIN_THEMES;
+  languageOverride;
+  readonlyNote;
+  extensionNotes = [];
+  themeNotes = [];
   appliedTheme = null;
   forceHighlight = false;
   draftOffer = null;
@@ -782,6 +859,9 @@ class EditorView extends View {
     }
     this.key = p.key;
     this.deps = this.makeDeps();
+    const t = this.deps.extensions.themes(BUILTIN_THEMES);
+    this.themes = t.themes;
+    this.themeNotes = t.messages;
     const initial = { file: typeof p.file === "string" ? p.file : null, on: typeof p.on === "string" ? p.on : null };
     cx.spawn(async (cx2) => {
       let target = initial;
@@ -859,7 +939,13 @@ class EditorView extends View {
     const writable = on === null ? await this.deps.files.canWrite(path, on) : false;
     if (stale())
       return;
-    this.readonlyReason = on !== null ? "remote" : writable === true ? null : writable === false ? "not-writable" : "unknown";
+    const ext = await this.deps.extensions.fileOpened({ path, machine: on, text, language: languageFor(path) });
+    if (stale())
+      return;
+    this.languageOverride = ext.language === languageFor(path) ? undefined : ext.language;
+    this.readonlyNote = ext.readonly ?? undefined;
+    this.extensionNotes = ext.messages;
+    this.readonlyReason = on !== null ? "remote" : writable === true ? ext.readonly ? "extension" : null : writable === false ? "not-writable" : "unknown";
     this.lossy = cls.kind === "text" && cls.lossy === true;
     this.forceHighlight = false;
     this.draftOffer = null;
@@ -885,8 +971,8 @@ class EditorView extends View {
     this.code?.release();
     this.doc = doc;
     this.lastGeneration = Math.max(this.lastGeneration, doc.generation);
-    const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight });
-    const applied = chosenTheme();
+    const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight, ...this.languageOverride ? { language: this.languageOverride } : {} });
+    const applied = chosenTheme(this.themes);
     this.appliedTheme = { name: applied.name, key: JSON.stringify(applied.syntax) };
     this.highlightOff = hl.off;
     this.code = EditorState.new({
@@ -942,6 +1028,22 @@ class EditorView extends View {
       this.readonlyReason = writable === false ? "not-writable" : "unknown";
       cx.notify();
       return false;
+    }
+    const hooked = await this.deps.extensions.beforeSave({ path: target.path, machine: target.machine, text: prepareForSave(target.text, target.eol) });
+    if (this.doc !== target)
+      return false;
+    if (!hooked.ok) {
+      this.extensionNotes = [`Save cancelled. ${hooked.reason}`];
+      cx.notify();
+      return false;
+    }
+    this.extensionNotes = [];
+    if (hooked.text !== prepareForSave(target.text, target.eol)) {
+      const sel = this.code?.selected_range?.();
+      this.code?.set_value(hooked.text);
+      this.doc = edit(target, hooked.text);
+      if (sel)
+        this.code?.set_selected_range?.({ start: Math.min(sel.start, hooked.text.length), end: Math.min(sel.end, hooked.text.length) });
     }
     const { state, request } = beginSave(this.doc);
     this.doc = state;
@@ -1002,7 +1104,7 @@ class EditorView extends View {
     const d = this.doc, applied = this.appliedTheme;
     if (!d || !applied || this.screen.kind !== "ready")
       return;
-    const want = chosenTheme();
+    const want = chosenTheme(this.themes);
     if (want.name === applied.name && JSON.stringify(want.syntax) === applied.key)
       return;
     if (want.name === applied.name && isDirty(d))
@@ -1179,11 +1281,13 @@ class EditorView extends View {
       lossy: this.lossy,
       draftError: this.draftError,
       highlightOff: this.highlightOff,
+      ...this.readonlyNote ? { readonlyNote: this.readonlyNote } : {},
+      extensionNotes: [...this.themeNotes, ...this.extensionNotes],
       draftOffer: this.draftOffer && { savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(), conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline) }
     });
     const header = h_flex().id("editor-header").h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).on_mouse_down("left", () => this.handle?.focus()).child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : "")).child(div().font_semibold().child(model.title)).child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path)).child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : "")).child(h_flex().id("theme-switch").h(22).px(8).items_center().rounded(5).border_1().border_color(t.border).text_size(11).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => {
       const s = readShared();
-      setShared(SHARED_KEY, { ...s, theme: nextTheme(chosenTheme().name, themeNames(BUILTIN_THEMES, isDark())) });
+      setShared(SHARED_KEY, { ...s, theme: nextTheme(chosenTheme(this.themes).name, themeNames(this.themes, isDark())) });
       this.maybeRetheme();
       cx.notify();
     }).child(`Theme: ${this.appliedTheme?.name ?? HERDR_THEME}`));
@@ -1218,7 +1322,7 @@ var ACTION_LABEL = {
 // src/entries/editor.ts
 class Editor2 extends EditorView {
   makeDeps() {
-    return { files: new HerdrFileStore, store: new SlotStore(new HerdrSlotIO) };
+    return { files: new HerdrFileStore, store: new SlotStore(new HerdrSlotIO), extensions: createRegistry(EXTENSIONS) };
   }
 }
 export {

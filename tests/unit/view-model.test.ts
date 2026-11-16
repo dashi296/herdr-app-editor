@@ -33,6 +33,10 @@ describe("editorModel", () => {
   test("unknown write permission disables saving with its own text", () => {
     expect(editorModel({ ...base, doc, readonly: "unknown" }).banners[0]?.text).toBe("Read-only: write permission could not be checked, so saving is disabled.");
   });
+  test("extension read-only reason and notes", () => {
+    const m = editorModel({ ...base, doc, readonly: "extension", readonlyNote: "generated file", extensionNotes: ["Save cancelled. lint: 2 errors"] });
+    expect(m.banners.map((b) => b.text)).toEqual(["Read-only: generated file", "Save cancelled. lint: 2 errors"]);
+  });
   test("highlighting switched off for size", () => {
     expect(editorModel({ ...base, doc, highlightOff: true }).banners).toEqual([
       { kind: "info", text: "Syntax highlighting is off for files over 30 KB to keep typing fast.", actions: ["highlightOn"] },
