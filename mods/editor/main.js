@@ -397,6 +397,157 @@ function highlightFor(path, length, opts = {}) {
     return { language: "txt", off: true };
   return { language, off: false };
 }
+// editor-themes/dracula.json
+var dracula_default = {
+  name: "Dracula",
+  appearance: "dark",
+  syntax: {
+    keyword: "#ff79c6",
+    string: "#f1fa8c",
+    "string.escape": "#ff79c6",
+    comment: "#6272a4",
+    function: "#50fa7b",
+    type: "#8be9fd",
+    number: "#bd93f9",
+    constant: "#bd93f9",
+    boolean: "#bd93f9",
+    variable: "#f8f8f2",
+    operator: "#ff79c6",
+    punctuation: "#f8f8f2"
+  }
+};
+// editor-themes/github-light.json
+var github_light_default = {
+  name: "GitHub Light",
+  appearance: "light",
+  syntax: {
+    keyword: "#cf222e",
+    string: "#0a3069",
+    "string.escape": "#0550ae",
+    comment: "#6e7781",
+    function: "#8250df",
+    type: "#953800",
+    number: "#0550ae",
+    constant: "#0550ae",
+    boolean: "#0550ae",
+    variable: "#24292f",
+    operator: "#cf222e",
+    punctuation: "#24292f"
+  }
+};
+// editor-themes/nord.json
+var nord_default = {
+  name: "Nord",
+  appearance: "dark",
+  syntax: {
+    keyword: "#81a1c1",
+    string: "#a3be8c",
+    "string.escape": "#ebcb8b",
+    comment: "#616e88",
+    function: "#88c0d0",
+    type: "#8fbcbb",
+    number: "#b48ead",
+    constant: "#b48ead",
+    boolean: "#81a1c1",
+    variable: "#d8dee9",
+    operator: "#81a1c1",
+    punctuation: "#eceff4"
+  }
+};
+// editor-themes/one-dark.json
+var one_dark_default = {
+  name: "One Dark",
+  appearance: "dark",
+  syntax: {
+    keyword: "#c678dd",
+    string: "#98c379",
+    "string.escape": "#56b6c2",
+    comment: "#7f848e",
+    function: "#61afef",
+    type: "#e5c07b",
+    number: "#d19a66",
+    constant: "#d19a66",
+    boolean: "#d19a66",
+    variable: "#e06c75",
+    operator: "#56b6c2",
+    punctuation: "#abb2bf"
+  }
+};
+
+// src/core/theme/theme.ts
+var SYNTAX_KEYS = [
+  "keyword",
+  "string",
+  "string.escape",
+  "comment",
+  "function",
+  "type",
+  "number",
+  "constant",
+  "boolean",
+  "variable",
+  "operator",
+  "punctuation"
+];
+var HERDR_THEME = "Herdr";
+var HEX = /^#[0-9a-fA-F]{6}$/;
+function validateTheme(input) {
+  const errors = [];
+  const o = input && typeof input === "object" ? input : {};
+  if (typeof o.name !== "string" || !o.name.trim())
+    errors.push("name must be a non-empty string");
+  if (o.appearance !== "dark" && o.appearance !== "light")
+    errors.push('appearance must be "dark" or "light"');
+  const syntax = o.syntax && typeof o.syntax === "object" ? o.syntax : null;
+  if (!syntax)
+    errors.push("syntax must be an object");
+  for (const [k, v] of Object.entries(syntax ?? {})) {
+    if (!SYNTAX_KEYS.includes(k))
+      errors.push(`syntax.${k} is not a syntax category`);
+    else if (typeof v !== "string" || !HEX.test(v))
+      errors.push(`syntax.${k} must be a #rrggbb color, got ${JSON.stringify(v)}`);
+  }
+  if (errors.length)
+    return { ok: false, errors };
+  return { ok: true, theme: { name: o.name, appearance: o.appearance, syntax } };
+}
+function resolveSyntax(theme, herdr) {
+  const pick = (k) => herdr[k] ?? herdr.foreground ?? "#888888";
+  const base = {
+    keyword: pick("ansi5"),
+    string: pick("ansi2"),
+    "string.escape": pick("ansi6"),
+    comment: pick("dim"),
+    function: pick("ansi4"),
+    type: pick("ansi3"),
+    number: pick("ansi1"),
+    constant: pick("ansi6"),
+    boolean: pick("ansi1"),
+    variable: pick("foreground"),
+    operator: pick("ansi6"),
+    punctuation: pick("foreground")
+  };
+  return { ...base, ...theme?.syntax ?? {} };
+}
+function nextTheme(current, names) {
+  const i = names.indexOf(current);
+  return names[i < 0 ? 0 : (i + 1) % names.length];
+}
+function themeNames(themes, dark) {
+  return [HERDR_THEME, ...themes.filter((t) => t.appearance === (dark ? "dark" : "light")).map((t) => t.name)];
+}
+function pickTheme(themes, chosen, dark) {
+  const t = themes.find((x) => x.name === chosen);
+  return t && t.appearance === (dark ? "dark" : "light") ? t : null;
+}
+
+// src/core/theme/builtin.ts
+var BUILTIN_THEMES = [one_dark_default, dracula_default, github_light_default, nord_default].map((raw) => {
+  const r = validateTheme(raw);
+  if (!r.ok)
+    throw new Error(`invalid editor theme: ${r.errors.join("; ")}`);
+  return r.theme;
+});
 
 // src/core/routing/routing.ts
 var liveEditors = (panes, mod) => new Map(panes.filter((p) => p.mod === mod).map((p) => [p.pane, p.tab]));
@@ -585,10 +736,10 @@ function palette() {
     out.hover = t.raised;
   return out;
 }
-function syntaxColors() {
-  const t = theme();
-  const pick = (k) => t[k] ?? t.foreground ?? "#888888";
-  return { keyword: pick("ansi5"), string: pick("ansi2"), comment: pick("dim"), function: pick("ansi4"), type: pick("ansi3"), number: pick("ansi1"), constant: pick("ansi6") };
+var isDark = () => settings().dark !== false;
+function chosenTheme() {
+  const picked = pickTheme(BUILTIN_THEMES, readShared().theme, isDark());
+  return { name: picked?.name ?? HERDR_THEME, syntax: resolveSyntax(picked, theme()) };
 }
 
 class EditorView extends View {
@@ -604,6 +755,7 @@ class EditorView extends View {
   openSeq = 0;
   lossy = false;
   highlightOff = false;
+  appliedTheme = null;
   forceHighlight = false;
   draftOffer = null;
   draftError = null;
@@ -734,6 +886,8 @@ class EditorView extends View {
     this.doc = doc;
     this.lastGeneration = Math.max(this.lastGeneration, doc.generation);
     const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight });
+    const applied = chosenTheme();
+    this.appliedTheme = { name: applied.name, key: JSON.stringify(applied.syntax) };
     this.highlightOff = hl.off;
     this.code = EditorState.new({
       language: hl.language,
@@ -741,7 +895,7 @@ class EditorView extends View {
       readonly: this.readonlyReason !== null,
       font_family: String(settings().font_family ?? ""),
       font_size: 13,
-      syntax: syntaxColors()
+      syntax: applied.syntax
     });
     this.code.on("change", (_e, cx) => this.onChange(cx));
     this.code.on("focus", () => this.register());
@@ -844,7 +998,25 @@ class EditorView extends View {
       this.draftError = String(e);
     });
   }
+  maybeRetheme() {
+    const d = this.doc, applied = this.appliedTheme;
+    if (!d || !applied || this.screen.kind !== "ready")
+      return;
+    const want = chosenTheme();
+    if (want.name === applied.name && JSON.stringify(want.syntax) === applied.key)
+      return;
+    if (want.name === applied.name && isDirty(d))
+      return;
+    this.rebuildKeepingSelection(d);
+  }
+  rebuildKeepingSelection(d) {
+    const sel = this.code?.selected_range?.();
+    this.setDoc(d);
+    if (sel)
+      this.code?.set_selected_range?.(sel);
+  }
   maybePoll(cx) {
+    this.maybeRetheme();
     const d = this.doc;
     if (!d || this.polling || d.status === "saving" || !this.isVisible())
       return;
@@ -956,11 +1128,8 @@ class EditorView extends View {
     else if (a === "retry")
       await this.save(cx);
     else if (a === "highlightOn") {
-      const sel = this.code?.selected_range?.();
       this.forceHighlight = true;
-      this.setDoc(d);
-      if (sel)
-        this.code?.set_selected_range?.(sel);
+      this.rebuildKeepingSelection(d);
     } else if (a === "reload") {
       const disk = await this.deps.files.read(d.path, d.machine).catch(() => null);
       if (disk !== null && this.doc === d) {
@@ -1012,7 +1181,12 @@ class EditorView extends View {
       highlightOff: this.highlightOff,
       draftOffer: this.draftOffer && { savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(), conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline) }
     });
-    const header = h_flex().id("editor-header").h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).on_mouse_down("left", () => this.handle?.focus()).child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : "")).child(div().font_semibold().child(model.title)).child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path)).child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : ""));
+    const header = h_flex().id("editor-header").h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).on_mouse_down("left", () => this.handle?.focus()).child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : "")).child(div().font_semibold().child(model.title)).child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path)).child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : "")).child(h_flex().id("theme-switch").h(22).px(8).items_center().rounded(5).border_1().border_color(t.border).text_size(11).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => {
+      const s = readShared();
+      setShared(SHARED_KEY, { ...s, theme: nextTheme(chosenTheme().name, themeNames(BUILTIN_THEMES, isDark())) });
+      this.maybeRetheme();
+      cx.notify();
+    }).child(`Theme: ${this.appliedTheme?.name ?? HERDR_THEME}`));
     const banners = model.banners.map((b, i) => h_flex().id(`banner-${i}`).flex_none().px(12).py(6).gap(8).items_center().border_b(1).border_color(t.border).bg(b.kind === "error" ? t.blocked : b.kind === "warn" ? t.raised : t.surface).child(div().flex_1().min_w(0).child(b.text)).children(b.actions.map((a) => this.button(`act-${i}-${a}`, ACTION_LABEL[a], t, (cx) => {
       cx.spawn(async (cx2) => {
         await this.act(a, cx2);

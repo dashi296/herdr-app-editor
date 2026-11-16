@@ -1,0 +1,9 @@
+{
+  "name": "GitHub Light",
+  "appearance": "light",
+  "syntax": {
+    "keyword": "#cf222e", "string": "#0a3069", "string.escape": "#0550ae", "comment": "#6e7781",
+    "function": "#8250df", "type": "#953800", "number": "#0550ae", "constant": "#0550ae",
+    "boolean": "#0550ae", "variable": "#24292f", "operator": "#cf222e", "punctuation": "#24292f"
+  }
+}

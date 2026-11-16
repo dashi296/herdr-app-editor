@@ -10,6 +10,8 @@ import {
 } from "../core/document/document";
 import { draftBase, draftDir, paneBase } from "../core/draft/paths";
 import { highlightFor } from "../core/language/language";
+import { BUILTIN_THEMES } from "../core/theme/builtin";
+import { HERDR_THEME, nextTheme, pickTheme, resolveSyntax, themeNames } from "../core/theme/theme";
 import { MOD_EDITOR, SHARED_KEY } from "../core/names";
 import {
   acceptOpen, decodeCommand, dialogOpened, encodeCommand, handleOpen, handleReply, idleRouting, interacted, pruneRegistry,
@@ -25,7 +27,7 @@ import type { SlotStore } from "../ports/slot-store";
 export interface EditorDeps { files: FileStore; store: SlotStore }
 
 interface Draft { machine: string | null; path: string; ownerKey: string; baselineHash: string; text: string; savedAt: number }
-interface SharedState { registry?: Registry }
+interface SharedState { registry?: Registry; theme?: string }
 
 type Screen = { kind: "loading" } | { kind: "message"; text: string } | { kind: "ready" };
 
@@ -58,10 +60,12 @@ function palette(): Palette {
   return out;
 }
 
-function syntaxColors(): Record<string, string> {
-  const t = theme();
-  const pick = (k: string) => t[k] ?? t.foreground ?? "#888888";
-  return { keyword: pick("ansi5"), string: pick("ansi2"), comment: pick("dim"), function: pick("ansi4"), type: pick("ansi3"), number: pick("ansi1"), constant: pick("ansi6") };
+const isDark = () => settings().dark !== false;
+
+/** The chosen editor theme (shared by every editor), if it suits the app's appearance, and its colors now. */
+function chosenTheme(): { name: string; syntax: Record<string, string> } {
+  const picked = pickTheme(BUILTIN_THEMES, readShared().theme, isDark());
+  return { name: picked?.name ?? HERDR_THEME, syntax: resolveSyntax(picked, theme()) };
 }
 
 export abstract class EditorView extends View {
@@ -81,6 +85,8 @@ export abstract class EditorView extends View {
   private openSeq = 0;
   private lossy = false;
   private highlightOff = false;
+  /** The theme the current EditorState was built with (EditorState cannot change colors: R8). */
+  private appliedTheme: { name: string; key: string } | null = null;
   /** The user turned highlighting back on for this file (spike S8). */
   private forceHighlight = false;
   private draftOffer: Draft | null = null;
@@ -198,10 +204,12 @@ export abstract class EditorView extends View {
     this.doc = doc;
     this.lastGeneration = Math.max(this.lastGeneration, doc.generation);
     const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight });
+    const applied = chosenTheme();
+    this.appliedTheme = { name: applied.name, key: JSON.stringify(applied.syntax) };
     this.highlightOff = hl.off;
     this.code = EditorState.new({
       language: hl.language, value: doc.text, readonly: this.readonlyReason !== null,
-      font_family: String(settings().font_family ?? ""), font_size: 13, syntax: syntaxColors(),
+      font_family: String(settings().font_family ?? ""), font_size: 13, syntax: applied.syntax,
     });
     this.code.on("change", (_e, cx) => this.onChange(cx));
     // The editor itself took the keyboard: this is now the latest focused editor (review S2).
@@ -296,7 +304,27 @@ export abstract class EditorView extends View {
 
   // ---------- external changes ----------
 
+  /**
+   * Rebuilds the EditorState when the theme changed: at once when another theme was chosen, and
+   * when Herdr's own palette changed only while the document is clean (a rebuild drops undo: R8).
+   */
+  private maybeRetheme() {
+    const d = this.doc, applied = this.appliedTheme;
+    if (!d || !applied || this.screen.kind !== "ready") return;
+    const want = chosenTheme();
+    if (want.name === applied.name && JSON.stringify(want.syntax) === applied.key) return;
+    if (want.name === applied.name && isDirty(d)) return;
+    this.rebuildKeepingSelection(d);
+  }
+
+  private rebuildKeepingSelection(d: Doc) {
+    const sel = (this.code as { selected_range?: () => { start: number; end: number } } | null)?.selected_range?.();
+    this.setDoc(d);
+    if (sel) (this.code as { set_selected_range?: (r: { start: number; end: number }) => void } | null)?.set_selected_range?.(sel);
+  }
+
   private maybePoll(cx: AsyncContext) {
+    this.maybeRetheme();
     const d = this.doc;
     if (!d || this.polling || d.status === "saving" || !this.isVisible()) return;
     const interval = d.machine === null ? POLL_LOCAL_MS : POLL_REMOTE_MS;
@@ -388,10 +416,8 @@ export abstract class EditorView extends View {
     else if (a === "retry") await this.save(cx);
     else if (a === "highlightOn") {
       // EditorState has no set_language (R8): rebuild it, keeping the text and the selection.
-      const sel = (this.code as { selected_range?: () => { start: number; end: number } } | null)?.selected_range?.();
       this.forceHighlight = true;
-      this.setDoc(d);
-      if (sel) (this.code as { set_selected_range?: (r: { start: number; end: number }) => void } | null)?.set_selected_range?.(sel);
+      this.rebuildKeepingSelection(d);
     }
     else if (a === "reload") {
       const disk = await this.deps.files.read(d.path, d.machine).catch(() => null);
@@ -439,7 +465,16 @@ export abstract class EditorView extends View {
       .child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : ""))
       .child(div().font_semibold().child(model.title))
       .child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path))
-      .child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : ""));
+      .child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : ""))
+      .child(h_flex().id("theme-switch").h(22).px(8).items_center().rounded(5).border_1().border_color(t.border)
+        .text_size(11).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => {
+          const s = readShared();
+          setShared(SHARED_KEY, { ...s, theme: nextTheme(chosenTheme().name, themeNames(BUILTIN_THEMES, isDark())) });
+          this.maybeRetheme(); // this copy at once; the others on their next timer tick
+          cx.notify();
+        })
+        .child(`Theme: ${this.appliedTheme?.name ?? HERDR_THEME}`));
     const banners = model.banners.map((b, i) =>
       h_flex().id(`banner-${i}`).flex_none().px(12).py(6).gap(8).items_center().border_b(1).border_color(t.border)
         .bg(b.kind === "error" ? t.blocked : b.kind === "warn" ? t.raised : t.surface)

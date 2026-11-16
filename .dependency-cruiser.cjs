@@ -3,8 +3,8 @@
 const HOST = "^(herdr|gpui-kit|gpui-base|fs/promises)$";
 module.exports = {
   forbidden: [
-    { name: "core-is-pure", severity: "error", comment: "core imports nothing outside core",
-      from: { path: "^src/core/" }, to: { pathNot: "^src/core/" } },
+    { name: "core-is-pure", severity: "error", comment: "core imports nothing outside core, except the theme data in editor-themes/",
+      from: { path: "^src/core/" }, to: { pathNot: "^(src/core/|editor-themes/[^/]+\\.json$)" } },
     { name: "core-no-host", severity: "error",
       from: { path: "^src/core/" }, to: { path: HOST } },
     { name: "ports-only-core", severity: "error",
