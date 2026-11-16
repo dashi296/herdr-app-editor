@@ -124,3 +124,17 @@ describe("DraftWriter failure keeps the snapshot (review B3)", () => {
     expect(saved).toEqual(["b"]);
   });
 });
+
+describe("flush reports a snapshot it could not write (review NB2)", () => {
+  test("flush rejects while the snapshot stays pending", async () => {
+    const time = new FakeTime();
+    let fail = true;
+    const saved: unknown[] = [];
+    const writer = new DraftWriter<string>({ save: async (v) => { if (fail) throw new Error("full"); saved.push(v); } }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    writer.update("a", time);
+    await expect(writer.flush()).rejects.toThrow("full");
+    fail = false;
+    await writer.flush();
+    expect(saved).toEqual(["a"]);
+  });
+});

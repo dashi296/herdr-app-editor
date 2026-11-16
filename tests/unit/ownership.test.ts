@@ -28,6 +28,23 @@ describe("ownership (review B5)", () => {
     writeFileSync(join(home, "mods/editor/.DS_Store"), "");
     expect(verifyOwned(home, targets, hashes)).toEqual([]);
   });
+  test("other .d.ts files and dotfiles are user files (review B5 follow-up)", () => {
+    const hashes = hashTargets(home, targets);
+    writeFileSync(join(home, "mods/editor/custom.d.ts"), "");
+    writeFileSync(join(home, "mods/editor/.env"), "SECRET=1");
+    mkdirSync(join(home, "mods/editor/sub"));
+    writeFileSync(join(home, "mods/editor/sub/jsconfig.json"), "{}");
+    expect(verifyOwned(home, targets, hashes)).toEqual([
+      "added: mods/editor/.env", "added: mods/editor/custom.d.ts", "added: mods/editor/sub/jsconfig.json",
+    ]);
+  });
+  test("a generated name that was installed is checked like any file", () => {
+    writeFileSync(join(home, "mods/editor/jsconfig.json"), "{\"ours\":1}");
+    // install.ts passes the files of the package being installed as `include`.
+    const hashes = hashTargets(home, targets, { "mods/editor/jsconfig.json": "" });
+    writeFileSync(join(home, "mods/editor/jsconfig.json"), "{}");
+    expect(verifyOwned(home, targets, hashes)).toEqual(["changed: mods/editor/jsconfig.json"]);
+  });
   test("a changed file is reported", () => {
     const hashes = hashTargets(home, targets);
     writeFileSync(join(home, "mods/editor/main.js"), "someone else's code");

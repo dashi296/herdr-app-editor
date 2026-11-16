@@ -17,7 +17,15 @@ if (!status()) {
 const manifest = readManifest();
 const previousLayout = manifest?.previousLayout ?? "main";
 // Delete only what this script installed, unchanged (review B5). Checked before anything is closed.
-if (manifest?.hashes && !process.argv.includes("--force")) {
+const force = process.argv.includes("--force");
+if (!manifest?.hashes && !force) {
+  console.error(manifest
+    ? "Stopped: the install record has no file hashes, so changes to the installed files cannot be detected."
+    : "Stopped: no install record (data/editor/install.json), so the files to remove cannot be confirmed as ours.");
+  console.error("Check mods/editor*, layouts/editor.json in the app home, then run again with --force. Nothing was closed or removed.");
+  process.exit(1);
+}
+if (manifest?.hashes && !force) {
   const changed = verifyOwned(home, manifest.files, manifest.hashes);
   if (changed.length) {
     console.error(`Stopped: installed files were changed since installing and would be deleted:\n  ${changed.join("\n  ")}`);

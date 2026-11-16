@@ -159,13 +159,18 @@ export default class Files extends View {
 
   // herdr-app-editor: send the file to the latest focused editor in this tab, or split a new one.
   openInEditor(path, cx, newPane = false) {
-    // While a split is being registered, a second split would make the new pane ambiguous
-    // (newPaneAfterSplit needs exactly one). Remember the latest click and replay it afterwards.
-    if (this.splitting) { this.queuedOpen = { path, newPane }; return; }
-    const file = `${this.root}/${path}`, on = this.on ?? null;
     const space = spaces().find(s => s.active);
     const tab = space?.tabs.find(t => t.active)?.id;
     if (!tab) return;
+    this.openFileInEditor({ file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane }, cx);
+  }
+
+  // `request` is captured at click time (absolute file, machine, tab), so a queued click opens what was clicked.
+  openFileInEditor(request, cx) {
+    // While a split is being registered, a second split would make the new pane ambiguous
+    // (newPaneAfterSplit needs exactly one). Queue every click and replay them in order.
+    if (this.splitting) { (this.queuedOpens ??= []).push(request); return; }
+    const { file, on, tab, newPane } = request;
     const all = panes();
     const state = shared(SHARED_KEY) ?? {};
     const registry = pruneRegistry(state.registry ?? {}, all, MOD_EDITOR);
@@ -184,7 +189,13 @@ export default class Files extends View {
     const before = all.filter(p => p.mod === MOD_EDITOR).map(p => p.pane);
     const key = `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     this.splitting = true;
-    run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key, file, on } });
+    try {
+      run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key, file, on } });
+    } catch (e) {
+      this.splitting = false;
+      this.drainQueuedOpens(cx);
+      throw e;
+    }
     // The editor cannot learn its own pane at init (spike S5 result 6): register it from here.
     cx.spawn(async cx => {
       try {
@@ -200,11 +211,13 @@ export default class Files extends View {
         }
       } finally {
         this.splitting = false;
-        const queued = this.queuedOpen;
-        this.queuedOpen = null;
-        if (queued) this.openInEditor(queued.path, cx, queued.newPane);
+        this.drainQueuedOpens(cx);
       }
     });
+  }
+
+  drainQueuedOpens(cx) {
+    while (this.queuedOpens?.length && !this.splitting) this.openFileInEditor(this.queuedOpens.shift(), cx);
   }
 
   show(path, cx) {

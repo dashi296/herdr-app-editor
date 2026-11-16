@@ -213,15 +213,18 @@ class Files extends View {
     cx.notify();
   }
   openInEditor(path, cx, newPane = false) {
-    if (this.splitting) {
-      this.queuedOpen = { path, newPane };
-      return;
-    }
-    const file = `${this.root}/${path}`, on = this.on ?? null;
     const space = spaces().find((s) => s.active);
     const tab = space?.tabs.find((t) => t.active)?.id;
     if (!tab)
       return;
+    this.openFileInEditor({ file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane }, cx);
+  }
+  openFileInEditor(request, cx) {
+    if (this.splitting) {
+      (this.queuedOpens ??= []).push(request);
+      return;
+    }
+    const { file, on, tab, newPane } = request;
     const all = panes();
     const state = shared(SHARED_KEY) ?? {};
     const registry = pruneRegistry(state.registry ?? {}, all, MOD_EDITOR);
@@ -240,7 +243,13 @@ class Files extends View {
     const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
     const key2 = `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     this.splitting = true;
-    run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key: key2, file, on } });
+    try {
+      run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key: key2, file, on } });
+    } catch (e) {
+      this.splitting = false;
+      this.drainQueuedOpens(cx);
+      throw e;
+    }
     cx.spawn(async (cx2) => {
       try {
         for (let i = 0;i < 30; i++) {
@@ -256,12 +265,13 @@ class Files extends View {
         }
       } finally {
         this.splitting = false;
-        const queued = this.queuedOpen;
-        this.queuedOpen = null;
-        if (queued)
-          this.openInEditor(queued.path, cx2, queued.newPane);
+        this.drainQueuedOpens(cx2);
       }
     });
+  }
+  drainQueuedOpens(cx) {
+    while (this.queuedOpens?.length && !this.splitting)
+      this.openFileInEditor(this.queuedOpens.shift(), cx);
   }
   show(path, cx) {
     this.code?.release();

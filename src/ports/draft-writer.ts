@@ -20,6 +20,7 @@ export class DraftWriter<T> {
   private firstPendingAt: number | null = null;
   private timer: { cancel(): void } | null = null;
   private writing: Promise<void> | null = null;
+  private lastError: unknown = undefined;
 
   constructor(private sink: DraftSink<T>, private clock: { now(): number }, private opts: DraftWriterOptions) {}
 
@@ -33,12 +34,13 @@ export class DraftWriter<T> {
     this.timer = timer.after(delay, () => { this.timer = null; void this.kick(); });
   }
 
-  /** Writes the pending snapshot now (e.g. on close). Resolves when nothing is pending. */
+  /** Writes the pending snapshot now (e.g. on close). Rejects if it could not be written; it stays pending. */
   async flush(): Promise<void> {
     this.timer?.cancel();
     this.timer = null;
     await this.kick();
     while (this.writing) await this.writing;
+    if (this.pending && this.lastError !== undefined) throw this.lastError;
   }
 
   /** Forgets the pending snapshot (the edits were saved or discarded). A write already running finishes. */
@@ -57,8 +59,9 @@ export class DraftWriter<T> {
         const { value } = this.pending;
         this.pending = null;
         this.firstPendingAt = null;
-        try { await this.sink.save(value); }
+        try { await this.sink.save(value); this.lastError = undefined; }
         catch (e) {
+          this.lastError = e;
           // Keep the snapshot so flush() or the next change retries it, unless a newer one arrived.
           if (!this.pending) { this.pending = { value }; this.firstPendingAt ??= this.clock.now(); }
           this.opts.onError?.(e);

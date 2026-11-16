@@ -493,6 +493,7 @@ class DraftWriter {
   firstPendingAt = null;
   timer = null;
   writing = null;
+  lastError = undefined;
   constructor(sink, clock, opts) {
     this.sink = sink;
     this.clock = clock;
@@ -515,6 +516,8 @@ class DraftWriter {
     await this.kick();
     while (this.writing)
       await this.writing;
+    if (this.pending && this.lastError !== undefined)
+      throw this.lastError;
   }
   discard() {
     this.timer?.cancel();
@@ -534,7 +537,9 @@ class DraftWriter {
         this.firstPendingAt = null;
         try {
           await this.sink.save(value);
+          this.lastError = undefined;
         } catch (e) {
+          this.lastError = e;
           if (!this.pending) {
             this.pending = { value };
             this.firstPendingAt ??= this.clock.now();
@@ -622,11 +627,14 @@ class EditorView extends View {
     const initial = { file: typeof p.file === "string" ? p.file : null, on: typeof p.on === "string" ? p.on : null };
     cx.spawn(async (cx2) => {
       let target = initial;
+      const seq = this.openSeq;
       try {
         const saved = await this.deps.store.load(paneBase(this.key));
         if (saved?.file)
           target = saved;
       } catch {}
+      if (seq !== this.openSeq)
+        return;
       if (target.file)
         await this.openFile(target.file, target.on, cx2);
       else
@@ -689,14 +697,16 @@ class EditorView extends View {
     this.readonlyReason = on !== null ? "remote" : writable === true ? null : writable === false ? "not-writable" : "unknown";
     this.lossy = cls.kind === "text" && cls.lossy === true;
     this.forceHighlight = false;
-    this.setDoc(open({ path, machine: on, text, after: this.lastGeneration }));
+    this.draftOffer = null;
+    this.setDoc(open({ path, machine: on, text, after: Math.max(this.lastGeneration, this.doc?.generation ?? 0) }));
     this.writer = new DraftWriter({ save: (d) => this.deps.store.save(draftBase(d.machine, d.path, d.ownerKey), d) }, { now: () => Date.now() }, { debounceMs: 250, maxWaitMs: 1000, onError: (e) => {
       this.draftError = String(e);
     } });
     this.deps.store.save(paneBase(this.key), { file: path, on }).catch(() => {});
-    await this.findDraft(path, on, text);
+    const offer = await this.findDraft(path, on, text);
     if (stale())
       return;
+    this.draftOffer = offer;
     this.screen = { kind: "ready" };
   }
   showMessage(text) {
@@ -723,19 +733,20 @@ class EditorView extends View {
     this.code.on("focus", () => this.register());
   }
   async findDraft(path, on, disk) {
-    this.draftOffer = null;
+    let best = null;
     try {
       const dir = draftDir(on, path);
       for (const owner of await this.deps.store.owners(dir)) {
         const d = await this.deps.store.load(`${dir}/${owner}`);
         if (!d || d.path !== path || d.machine !== on || d.text === disk)
           continue;
-        if (!this.draftOffer || d.savedAt > this.draftOffer.savedAt)
-          this.draftOffer = d;
+        if (!best || d.savedAt > best.savedAt)
+          best = d;
       }
     } catch (e) {
       this.draftError = String(e);
     }
+    return best;
   }
   onChange(cx) {
     if (!this.doc || !this.code)
@@ -770,7 +781,7 @@ class EditorView extends View {
     try {
       await this.deps.files.write(request.path, request.text, request.expected);
       if (!this.doc || this.doc.generation !== request.generation || this.doc.path !== request.path)
-        return true;
+        return false;
       this.doc = saveSucceeded(this.doc, request.generation);
       if (!isDirty(this.doc)) {
         this.writer?.discard();
@@ -787,7 +798,7 @@ class EditorView extends View {
       } catch (re) {
         reread = { kind: "unreadable", error: String(re) };
       }
-      if (!this.doc)
+      if (!this.doc || this.doc.path !== request.path || this.doc.machine !== request.machine)
         return false;
       this.doc = saveFailed(this.doc, request.generation, reread, String(e));
       cx.notify();

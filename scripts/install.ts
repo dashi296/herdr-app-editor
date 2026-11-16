@@ -3,7 +3,7 @@
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LAYOUT, MODS, REPO, appHome, dataDir, exists, manifestPath, readManifest, status, switchLayout } from "./lib/herdr";
-import { hashTargets, verifyOwned } from "./lib/ownership";
+import { hashTargets, listFiles, verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 const st = status();
@@ -21,6 +21,11 @@ if (taken.length) {
   process.exit(1);
 }
 const force = process.argv.includes("--force");
+if (previous && !previous.hashes && !force) {
+  console.error("Stopped: the previous install has no file hashes, so changes to its files cannot be detected.");
+  console.error("Check mods/editor*, layouts/editor.json in the app home, then run again with --force.");
+  process.exit(1);
+}
 if (previous?.hashes && !force) {
   const changed = verifyOwned(home, previous.files, previous.hashes);
   if (changed.length) {
@@ -35,7 +40,9 @@ cpSync(join(REPO, "layouts", `${LAYOUT}.json`), join(home, "layouts", `${LAYOUT}
 
 const previousLayout = previous?.previousLayout ?? (st.layout && st.layout !== LAYOUT ? st.layout : "main");
 mkdirSync(dataDir(), { recursive: true });
-writeFileSync(manifestPath(), JSON.stringify({ installedAt: new Date().toISOString(), files: targets, previousLayout, hashes: hashTargets(home, targets) }, null, 2) + "\n");
+// Every file of the package is ours, even one named like a file Herdr generates.
+const shipped = Object.fromEntries(listFiles(REPO, targets).map((f) => [f, ""]));
+writeFileSync(manifestPath(), JSON.stringify({ installedAt: new Date().toISOString(), files: targets, previousLayout, hashes: hashTargets(home, targets, shipped) }, null, 2) + "\n");
 console.log(`Installed into ${home}:\n  ${targets.join("\n  ")}`);
 
 if (!process.argv.includes("--no-switch")) {
