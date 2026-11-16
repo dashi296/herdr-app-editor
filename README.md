@@ -1,9 +1,13 @@
 # herdr-app-editor
 Native, extensible code editor mod for Herdr Desktop
 
+![Herdr Editor](preview.png)
+
+See [RECIPE.md](RECIPE.md) for what it does and how it is built, and [docs/extensions.md](docs/extensions.md) for extensions.
+
 ## Install
 
-Requires Herdr Desktop 0.1.16 or later and [Bun](https://bun.sh) 1.3.5 (`mise install`). Herdr must be running.
+Requires Herdr Desktop 0.1.16 or later and [Bun](https://bun.sh) 1.3.5 (`mise install`; run `mise trust` once if mise reports the config as not trusted). Herdr must be running.
 
 ```sh
 bun install
