@@ -5,8 +5,11 @@
   "scripts": {
     "test": "bun test tests/unit",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.host.json",
+    "lint": "oxlint --deny-warnings",
     "lint:deps": "depcruise src --config .dependency-cruiser.cjs",
-    "ci": "bun run typecheck && bun run test && bun run lint:deps && bun run build && git diff --exit-code -- mods/",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "ci": "bun run typecheck && bun run lint && bun run fmt:check && bun run test && bun run lint:deps && bun run build && git diff --exit-code -- mods/",
     "build": "bun run scripts/build.ts",
     "install:herdr": "bun run scripts/build.ts && bun run scripts/install.ts",
     "uninstall:herdr": "bun run scripts/uninstall.ts"
@@ -14,6 +17,8 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "dependency-cruiser": "^18.7.2",
+    "oxfmt": "^0.79.0",
+    "oxlint": "^1.94.0",
     "typescript": "5"
   }
 }

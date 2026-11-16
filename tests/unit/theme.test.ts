@@ -1,8 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import { BUILTIN_THEMES } from "../../src/core/theme/builtin";
-import { HERDR_THEME, nextTheme, pickTheme, resolveSyntax, SYNTAX_KEYS, themeNames, validateTheme } from "../../src/core/theme/theme";
+import {
+  HERDR_THEME,
+  nextTheme,
+  pickTheme,
+  resolveSyntax,
+  SYNTAX_KEYS,
+  themeNames,
+  validateTheme,
+} from "../../src/core/theme/theme";
 
-const herdrColors = { ansi1: "#ff0000", ansi2: "#00ff00", ansi3: "#ffff00", ansi4: "#0000ff", ansi5: "#ff00ff", ansi6: "#00ffff", dim: "#888888", foreground: "#cccccc" };
+const herdrColors = {
+  ansi1: "#ff0000",
+  ansi2: "#00ff00",
+  ansi3: "#ffff00",
+  ansi4: "#0000ff",
+  ansi5: "#ff00ff",
+  ansi6: "#00ffff",
+  dim: "#888888",
+  foreground: "#cccccc",
+};
 
 describe("validateTheme", () => {
   test("every built-in theme is valid and complete", () => {
@@ -12,12 +29,13 @@ describe("validateTheme", () => {
   test("rejects unknown categories, bad colors and missing names", () => {
     const r = validateTheme({ name: "", appearance: "dim", syntax: { keyword: "red", nope: "#000000" } });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors).toEqual([
-      "name must be a non-empty string",
-      'appearance must be "dark" or "light"',
-      'syntax.keyword must be a #rrggbb color, got "red"',
-      "syntax.nope is not a syntax category",
-    ]);
+    if (!r.ok)
+      expect(r.errors).toEqual([
+        "name must be a non-empty string",
+        'appearance must be "dark" or "light"',
+        'syntax.keyword must be a #rrggbb color, got "red"',
+        "syntax.nope is not a syntax category",
+      ]);
   });
   test("a partial theme is valid: missing categories fall back to Herdr's colors", () => {
     const r = validateTheme({ name: "Mini", appearance: "dark", syntax: { keyword: "#112233" } });
@@ -29,7 +47,12 @@ describe("validateTheme", () => {
 
 describe("resolveSyntax", () => {
   test("the Herdr theme follows the app's terminal palette", () => {
-    expect(resolveSyntax(null, herdrColors)).toMatchObject({ keyword: "#ff00ff", string: "#00ff00", comment: "#888888", function: "#0000ff" });
+    expect(resolveSyntax(null, herdrColors)).toMatchObject({
+      keyword: "#ff00ff",
+      string: "#00ff00",
+      comment: "#888888",
+      function: "#0000ff",
+    });
   });
 });
 

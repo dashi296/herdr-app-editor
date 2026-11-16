@@ -7,7 +7,9 @@ export interface Timer {
   after(ms: number, fn: () => void): { cancel(): void };
 }
 
-export interface DraftSink<T> { save(snapshot: T): Promise<void> }
+export interface DraftSink<T> {
+  save(snapshot: T): Promise<void>;
+}
 
 export interface DraftWriterOptions {
   debounceMs: number;
@@ -24,7 +26,11 @@ export class DraftWriter<T> {
   /** Bumped by discard(): a failing write that started before it must not bring its snapshot back. */
   private epoch = 0;
 
-  constructor(private sink: DraftSink<T>, private clock: { now(): number }, private opts: DraftWriterOptions) {}
+  constructor(
+    private sink: DraftSink<T>,
+    private clock: { now(): number },
+    private opts: DraftWriterOptions,
+  ) {}
 
   /** Records the latest snapshot and schedules a write. */
   update(value: T, timer: Timer): void {
@@ -33,7 +39,10 @@ export class DraftWriter<T> {
     this.timer?.cancel();
     const waited = this.clock.now() - this.firstPendingAt;
     const delay = Math.max(0, Math.min(this.opts.debounceMs, this.opts.maxWaitMs - waited));
-    this.timer = timer.after(delay, () => { this.timer = null; void this.kick(); });
+    this.timer = timer.after(delay, () => {
+      this.timer = null;
+      void this.kick();
+    });
   }
 
   /** Writes the pending snapshot now (e.g. on close). Rejects if it could not be written; it stays pending. */
@@ -64,18 +73,25 @@ export class DraftWriter<T> {
         const epoch = this.epoch;
         this.pending = null;
         this.firstPendingAt = null;
-        try { await this.sink.save(value); this.lastError = undefined; }
-        catch (e) {
+        try {
+          await this.sink.save(value);
+          this.lastError = undefined;
+        } catch (e) {
           // Keep the snapshot so flush() or the next change retries it, unless a newer one arrived
           // or it was discarded while being written.
           if (epoch !== this.epoch) continue;
           this.lastError = e;
-          if (!this.pending) { this.pending = { value }; this.firstPendingAt ??= this.clock.now(); }
+          if (!this.pending) {
+            this.pending = { value };
+            this.firstPendingAt ??= this.clock.now();
+          }
           this.opts.onError?.(e);
           break;
         }
       }
-    })().finally(() => { this.writing = null; });
+    })().finally(() => {
+      this.writing = null;
+    });
     return this.writing;
   }
 }

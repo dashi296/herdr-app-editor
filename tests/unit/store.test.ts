@@ -10,7 +10,11 @@ describe("fnv1a32", () => {
     expect(fnv1a32("foobar")).toBe("bf9cf968");
   });
   test("non-ASCII is hashed as UTF-8", () => {
-    const viaEncoder = (t: string) => { let h = 0x811c9dc5; for (const b of new TextEncoder().encode(t)) h = Math.imul(h ^ b, 0x01000193) >>> 0; return h.toString(16).padStart(8, "0"); };
+    const viaEncoder = (t: string) => {
+      let h = 0x811c9dc5;
+      for (const b of new TextEncoder().encode(t)) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+      return h.toString(16).padStart(8, "0");
+    };
     for (const t of ["é", "日本語", "😀/p/a.ts", "\0/path"]) expect(fnv1a32(t)).toBe(viaEncoder(t));
   });
 });
@@ -30,14 +34,21 @@ describe("parseSlot", () => {
   });
   test("checksum does not depend on key order", () => {
     const r = makeRecord(2, { b: 1, a: 2 });
-    const reordered = { checksum: r.checksum, payload: { a: 2, b: 1 }, deleted: r.deleted, seq: r.seq, schema: r.schema };
+    const reordered = {
+      checksum: r.checksum,
+      payload: { a: 2, b: 1 },
+      deleted: r.deleted,
+      seq: r.seq,
+      schema: r.schema,
+    };
     expect(parseSlot(raw(reordered))).not.toBeNull();
   });
 });
 
 describe("pickCurrent", () => {
   test("highest valid seq wins", () => {
-    const a = makeRecord(4, { v: "old" }), b = makeRecord(5, { v: "new" });
+    const a = makeRecord(4, { v: "old" }),
+      b = makeRecord(5, { v: "new" });
     expect(pickCurrent(raw(a), raw(b))).toEqual({ slot: "b", payload: { v: "new" }, seq: 5 });
   });
   test("a corrupt newer slot falls back to the older one", () => {
@@ -45,7 +56,8 @@ describe("pickCurrent", () => {
     expect(pickCurrent(raw(a), "{broken")).toEqual({ slot: "a", payload: { v: "old" }, seq: 4 });
   });
   test("a tombstone with the highest seq means nothing is stored", () => {
-    const a = makeRecord(4, { v: "old" }), b = makeRecord(5, null);
+    const a = makeRecord(4, { v: "old" }),
+      b = makeRecord(5, null);
     expect(pickCurrent(raw(a), raw(b))).toEqual({ slot: "b", payload: null, seq: 5 });
   });
   test("both missing", () => expect(pickCurrent(null, null)).toEqual({ slot: null, payload: null, seq: 0 }));
@@ -67,13 +79,15 @@ describe("planWrite", () => {
 
 describe("planDelete", () => {
   test("tombstone first, then the live slot, the tombstone last", () => {
-    const a = makeRecord(1, { v: 1 }), b = makeRecord(2, { v: 2 });
+    const a = makeRecord(1, { v: 1 }),
+      b = makeRecord(2, { v: 2 });
     const steps = planDelete(raw(a), raw(b));
     expect(steps.map((s) => s.op + ":" + s.slot)).toEqual(["write:a", "unlink:b", "unlink:a"]);
   });
 
   test("a crash after any step never brings the draft back", () => {
-    const a = makeRecord(1, { v: 1 }), b = makeRecord(2, { v: 2 });
+    const a = makeRecord(1, { v: 1 }),
+      b = makeRecord(2, { v: 2 });
     const steps = planDelete(raw(a), raw(b));
     const files: Record<"a" | "b", string | null> = { a: raw(a), b: raw(b) };
     for (const step of steps) {

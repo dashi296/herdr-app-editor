@@ -35,7 +35,16 @@ export interface Doc {
  * repeat within a view, so an I/O result for the previous document is always recognized as stale.
  */
 export function open(f: { path: string; machine: string | null; text: string; after?: number }): Doc {
-  return { path: f.path, machine: f.machine, eol: detectEol(f.text), baseline: f.text, text: f.text, revision: 0, generation: (f.after ?? 0) + 1, status: "clean" };
+  return {
+    path: f.path,
+    machine: f.machine,
+    eol: detectEol(f.text),
+    baseline: f.text,
+    text: f.text,
+    revision: 0,
+    generation: (f.after ?? 0) + 1,
+    status: "clean",
+  };
 }
 
 /** Whether saving would change the file. */
@@ -53,13 +62,22 @@ export function edit(d: Doc, text: string): Doc {
   return settle({ ...d, text, revision: d.revision + 1 });
 }
 
-export interface SaveRequest { path: string; machine: string | null; text: string; expected: string; generation: number }
+export interface SaveRequest {
+  path: string;
+  machine: string | null;
+  text: string;
+  expected: string;
+  generation: number;
+}
 
 export function beginSave(d: Doc): { state: Doc; request: SaveRequest } {
   const text = prepareForSave(d.text, d.eol);
   const { external: _e, failure: _f, ...rest } = d;
   const state: Doc = { ...rest, status: "saving", saving: text, generation: d.generation + 1 };
-  return { state, request: { path: d.path, machine: d.machine, text, expected: d.baseline, generation: state.generation } };
+  return {
+    state,
+    request: { path: d.path, machine: d.machine, text, expected: d.baseline, generation: state.generation },
+  };
 }
 
 export function saveSucceeded(d: Doc, generation: number): Doc {
@@ -74,15 +92,21 @@ export type Reread = { kind: "missing" } | { kind: "text"; text: string } | { ki
 export function saveFailed(d: Doc, generation: number, reread: Reread, message: string): Doc {
   if (generation !== d.generation) return d;
   const failure: Failure =
-    reread.kind === "missing" ? { observed: "deleted", message }
-    : reread.kind === "unreadable" ? { observed: "unreadable", message, readError: reread.error }
-    : reread.text !== d.baseline ? { observed: "changed", message }
-    : { observed: "failed", message };
+    reread.kind === "missing"
+      ? { observed: "deleted", message }
+      : reread.kind === "unreadable"
+        ? { observed: "unreadable", message, readError: reread.error }
+        : reread.text !== d.baseline
+          ? { observed: "changed", message }
+          : { observed: "failed", message };
   const { saving: _s, ...rest } = d;
   return { ...rest, status: "error", failure, generation: d.generation + 1 };
 }
 
-export interface PollToken { generation: number; revision: number }
+export interface PollToken {
+  generation: number;
+  revision: number;
+}
 
 export function beginPoll(d: Doc): PollToken {
   return { generation: d.generation, revision: d.revision };
@@ -101,7 +125,16 @@ export function pollResult(d: Doc, token: PollToken, disk: string | null): Doc {
 
 /** Replaces the document with disk content (automatic reload, or the user chose "reload"). */
 export function reloadFrom(d: Doc, disk: string): Doc {
-  return { path: d.path, machine: d.machine, eol: detectEol(disk), baseline: disk, text: disk, revision: d.revision + 1, generation: d.generation + 1, status: "clean" };
+  return {
+    path: d.path,
+    machine: d.machine,
+    eol: detectEol(disk),
+    baseline: disk,
+    text: disk,
+    revision: d.revision + 1,
+    generation: d.generation + 1,
+    status: "clean",
+  };
 }
 
 /** The user keeps their edits over an external change; the next save will be refused as a conflict. */

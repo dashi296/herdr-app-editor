@@ -8,6 +8,10 @@ import { EditorView, type EditorDeps } from "../ui/editor-view";
 
 export default class Editor extends EditorView {
   protected makeDeps(): EditorDeps {
-    return { files: new HerdrFileStore(), store: new SlotStore(new HerdrSlotIO()), extensions: createRegistry(EXTENSIONS) };
+    return {
+      files: new HerdrFileStore(),
+      store: new SlotStore(new HerdrSlotIO()),
+      extensions: createRegistry(EXTENSIONS),
+    };
   }
 }

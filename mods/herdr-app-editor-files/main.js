@@ -2,7 +2,20 @@
 // src/entries/editor-files.js
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, shared, setShared } from "herdr";
+import {
+  spaces,
+  panes,
+  focused,
+  exec,
+  readTextFile,
+  watchFolder,
+  theme,
+  settings,
+  window,
+  run,
+  shared,
+  setShared
+} from "herdr";
 
 // src/core/names.ts
 var NS = "herdr-app-editor";
@@ -46,12 +59,27 @@ function location() {
   return { cwd: pane?.cwd || f?.cwd || space?.folder, on, space: space?.id };
 }
 var key = () => JSON.stringify(location());
-var LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html" };
+var LANG = {
+  ts: "js",
+  tsx: "js",
+  mts: "js",
+  cts: "js",
+  jsx: "js",
+  mjs: "js",
+  toml: "yaml",
+  jsonc: "json",
+  svelte: "html",
+  vue: "html"
+};
 var PER_FOLDER = 500;
 var TOTAL = 5000;
 async function directory(path, on) {
   const windowsDirectory = async () => {
-    const r2 = await exec("powershell", ["-NoProfile", "-Command", "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); & { param($p) @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop | Where-Object Name -ne '.git' | Select-Object -First 501 | ForEach-Object { @{ name=$_.Name; dir=($_.PSIsContainer -and (-not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -or -not $_.LinkType -or ($_.Target -and [IO.Directory]::Exists(([IO.Path]::Combine([IO.Path]::GetDirectoryName($_.FullName), $_.Target[0])))))) } }) | ConvertTo-Json -Compress } '" + path.replace(/['‘’‚‛]/g, "$&$&") + "'"], { on });
+    const r2 = await exec("powershell", [
+      "-NoProfile",
+      "-Command",
+      "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); & { param($p) @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop | Where-Object Name -ne '.git' | Select-Object -First 501 | ForEach-Object { @{ name=$_.Name; dir=($_.PSIsContainer -and (-not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -or -not $_.LinkType -or ($_.Target -and [IO.Directory]::Exists(([IO.Path]::Combine([IO.Path]::GetDirectoryName($_.FullName), $_.Target[0])))))) } }) | ConvertTo-Json -Compress } '" + path.replace(/['‘’‚‛]/g, "$&$&") + "'"
+    ], { on });
     if (r2.code !== 0)
       throw new Error(r2.stderr || "Cannot list this folder");
     const result = JSON.parse(r2.stdout || "[]");
@@ -162,7 +190,16 @@ class Files extends View {
         const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }).catch(() => null);
         const marks = {};
         if (top?.code === 0) {
-          const status = await exec("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], { cwd, on }).catch(() => null);
+          const status = await exec("git", [
+            "--no-optional-locks",
+            "-c",
+            "core.fsmonitor=false",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--no-renames",
+            "--untracked-files=all"
+          ], { cwd, on }).catch(() => null);
           if (status?.code === 0)
             for (const entry of status.stdout.split("\x00").filter(Boolean).slice(0, TOTAL)) {
               const xy = entry.slice(0, 2);
@@ -302,7 +339,15 @@ class Files extends View {
 … (file truncated)` : text,
           font_family: settings().font_family,
           font_size: 12,
-          syntax: { keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4, type: t.ansi3, number: t.ansi1, constant: t.ansi6 }
+          syntax: {
+            keyword: t.ansi5,
+            string: t.ansi2,
+            comment: t.dim,
+            function: t.ansi4,
+            type: t.ansi3,
+            number: t.ansi1,
+            constant: t.ansi6
+          }
         });
       } catch {
         if (this.file === path && this.current(context))

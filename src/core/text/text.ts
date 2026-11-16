@@ -9,7 +9,10 @@ export function detectEol(text: string): Eol {
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
     if (c === 13 /* \r */) {
-      if (text.charCodeAt(i + 1) === 10) { crlf++; i++; } else return "mixed";
+      if (text.charCodeAt(i + 1) === 10) {
+        crlf++;
+        i++;
+      } else return "mixed";
     } else if (c === 10 /* \n */) lf++;
   }
   if (crlf && lf) return "mixed";

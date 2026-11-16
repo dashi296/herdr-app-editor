@@ -300,7 +300,10 @@ class UninstallView extends View {
     const remaining = editorPanes();
     setShared(SHARED_KEY, null);
     if (this.manual) {
-      this.phase = { kind: "done", text: remaining.length ? `${remaining.length} editor pane(s) could not be closed (on a machine that is not connected?). Close them first.` : `All editor panes are closed. ${MANUAL_NEXT}` };
+      this.phase = {
+        kind: "done",
+        text: remaining.length ? `${remaining.length} editor pane(s) could not be closed (on a machine that is not connected?). Close them first.` : `All editor panes are closed. ${MANUAL_NEXT}`
+      };
       cx.notify();
       return;
     }
@@ -321,7 +324,10 @@ class UninstallView extends View {
     try {
       await this.deps.store.save(RESULT_BASE, result);
       await this.deps.io.unlink(REQUEST_FILE);
-      this.phase = { kind: "done", text: status === "complete" ? "Done. The script removes the files next." : `Stopped (${status}).` };
+      this.phase = {
+        kind: "done",
+        text: status === "complete" ? "Done. The script removes the files next." : `Stopped (${status}).`
+      };
     } catch (e) {
       this.phase = { kind: "done", text: `Could not write the result: ${String(e)}` };
     }

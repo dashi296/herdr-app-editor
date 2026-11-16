@@ -27,7 +27,11 @@ export interface Manifest {
 }
 
 export function readManifest(): Manifest | null {
-  try { return JSON.parse(readFileSync(manifestPath(), "utf8")); } catch { return null; }
+  try {
+    return JSON.parse(readFileSync(manifestPath(), "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function herdrApp(args: string[]): { code: number; stdout: string; stderr: string } {
@@ -39,15 +43,24 @@ function herdrApp(args: string[]): { code: number; stdout: string; stderr: strin
 export function status(): { layout?: string; errors?: unknown[] } | null {
   const r = herdrApp(["status"]);
   if (r.code !== 0) return null;
-  try { return JSON.parse(r.stdout); } catch { return null; }
+  try {
+    return JSON.parse(r.stdout);
+  } catch {
+    return null;
+  }
 }
 
 /** Runs an app command; throws on an error reply. */
 export function run(command: string, args: Record<string, unknown> = {}): unknown {
   const r = herdrApp(["do", command, JSON.stringify(args)]);
   let reply: { error?: string } = {};
-  try { reply = JSON.parse(r.stdout || "{}"); } catch { /* not JSON */ }
-  if (r.code !== 0 || reply.error) throw new Error(`herdr-app do ${command} failed: ${reply.error ?? r.stderr ?? r.stdout}`);
+  try {
+    reply = JSON.parse(r.stdout || "{}");
+  } catch {
+    /* not JSON */
+  }
+  if (r.code !== 0 || reply.error)
+    throw new Error(`herdr-app do ${command} failed: ${reply.error ?? r.stderr ?? r.stdout}`);
   return reply;
 }
 

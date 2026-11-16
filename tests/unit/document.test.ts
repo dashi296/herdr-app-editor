@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
-  applyFormatted, acknowledgeExternal, beginPoll, beginSave, edit, isDirty, open, pollResult, reloadFrom, saveFailed, saveSucceeded,
+  applyFormatted,
+  acknowledgeExternal,
+  beginPoll,
+  beginSave,
+  edit,
+  isDirty,
+  open,
+  pollResult,
+  reloadFrom,
+  saveFailed,
+  saveSucceeded,
 } from "../../src/core/document/document";
 
 const doc = (text = "a\n") => open({ path: "/p/a.ts", machine: null, text });
@@ -58,7 +68,13 @@ describe("saving", () => {
     const d = edit(doc("a\r\n"), "a\r\nb\n");
     const { state, request } = beginSave(d);
     expect(state.status).toBe("saving");
-    expect(request).toEqual({ path: "/p/a.ts", machine: null, text: "a\r\nb\r\n", expected: "a\r\n", generation: state.generation });
+    expect(request).toEqual({
+      path: "/p/a.ts",
+      machine: null,
+      text: "a\r\nb\r\n",
+      expected: "a\r\n",
+      generation: state.generation,
+    });
   });
   test("success moves the baseline", () => {
     const { state, request } = beginSave(edit(doc(), "b\n"));
@@ -90,16 +106,23 @@ describe("save failures are classified by what a re-read observed", () => {
   });
   test("disk differs from baseline", () => {
     const { state, request } = failing();
-    expect(saveFailed(state, request.generation, { kind: "text", text: "theirs\n" }, "e").failure?.observed).toBe("changed");
+    expect(saveFailed(state, request.generation, { kind: "text", text: "theirs\n" }, "e").failure?.observed).toBe(
+      "changed",
+    );
   });
   test("disk equals baseline: other failure (permission, size)", () => {
     const { state, request } = failing();
-    expect(saveFailed(state, request.generation, { kind: "text", text: "a\n" }, "Permission denied").failure?.observed).toBe("failed");
+    expect(
+      saveFailed(state, request.generation, { kind: "text", text: "a\n" }, "Permission denied").failure?.observed,
+    ).toBe("failed");
   });
   test("re-read failed too", () => {
     const { state, request } = failing();
-    expect(saveFailed(state, request.generation, { kind: "unreadable", error: "EACCES" }, "e").failure)
-      .toEqual({ observed: "unreadable", message: "e", readError: "EACCES" });
+    expect(saveFailed(state, request.generation, { kind: "unreadable", error: "EACCES" }, "e").failure).toEqual({
+      observed: "unreadable",
+      message: "e",
+      readError: "EACCES",
+    });
   });
 });
 

@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
-  acceptOpen, decodeCommand, dialogOpened, encodeCommand, handleOpen, handleReply, idleRouting, interacted,
-  newPaneAfterSplit, pickTarget, pruneRegistry, type PaneLite, type Registry,
+  acceptOpen,
+  decodeCommand,
+  dialogOpened,
+  encodeCommand,
+  handleOpen,
+  handleReply,
+  idleRouting,
+  interacted,
+  newPaneAfterSplit,
+  pickTarget,
+  pruneRegistry,
+  type PaneLite,
+  type Registry,
 } from "../../src/core/routing/routing";
 
 const panes: PaneLite[] = [
@@ -84,10 +95,16 @@ describe("open requests and the save/discard/cancel dialog", () => {
     expect(r.effects).toEqual([{ type: "saveThenOpen", file: "/p/1.ts", on: null }]);
     expect(r.state.pending).toBeNull();
 
-    r = handleReply(dialogOpened(handleOpen(idleRouting(), req(2), { dirty: true }).state, "r2", "o2"), { req: "r2", choice: "discard" });
+    r = handleReply(dialogOpened(handleOpen(idleRouting(), req(2), { dirty: true }).state, "r2", "o2"), {
+      req: "r2",
+      choice: "discard",
+    });
     expect(r.effects).toEqual([{ type: "open", file: "/p/2.ts", on: null }]);
 
-    r = handleReply(dialogOpened(handleOpen(idleRouting(), req(3), { dirty: true }).state, "r3", "o3"), { req: "r3", choice: "cancel" });
+    r = handleReply(dialogOpened(handleOpen(idleRouting(), req(3), { dirty: true }).state, "r3", "o3"), {
+      req: "r3",
+      choice: "cancel",
+    });
     expect(r.effects).toEqual([{ type: "focusEditor" }]);
   });
 
@@ -100,10 +117,15 @@ describe("open requests and the save/discard/cancel dialog", () => {
   test("a new request while asking replaces the dialog; the old reply is ignored", () => {
     let state = dialogOpened(handleOpen(idleRouting(), req(1), { dirty: true }).state, "r1", "o1");
     const r = handleOpen(state, req(2), { dirty: true });
-    expect(r.effects).toEqual([{ type: "closeDialog", overlay: "o1" }, { type: "openDialog", req: "r2" }]);
+    expect(r.effects).toEqual([
+      { type: "closeDialog", overlay: "o1" },
+      { type: "openDialog", req: "r2" },
+    ]);
     state = dialogOpened(r.state, "r2", "o2");
     expect(handleReply(state, { req: "r1", choice: "cancel" }).effects).toEqual([]);
-    expect(handleReply(state, { req: "r2", choice: "discard" }).effects).toEqual([{ type: "open", file: "/p/2.ts", on: null }]);
+    expect(handleReply(state, { req: "r2", choice: "discard" }).effects).toEqual([
+      { type: "open", file: "/p/2.ts", on: null },
+    ]);
   });
 
   test("typing in the editor while a reply is pending means the reply was lost: cancel", () => {

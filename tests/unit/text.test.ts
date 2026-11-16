@@ -32,9 +32,11 @@ describe("prepareForSave", () => {
 });
 
 describe("classifyText", () => {
-  test("plain text is editable", () => expect(classifyText("const a = 1;\n", { remote: false })).toEqual({ kind: "text" }));
+  test("plain text is editable", () =>
+    expect(classifyText("const a = 1;\n", { remote: false })).toEqual({ kind: "text" }));
   test("NUL means binary", () => expect(classifyText("a\0b", { remote: false })).toEqual({ kind: "binary" }));
   test("remote text with U+FFFD may have lost bytes", () =>
     expect(classifyText("a�b", { remote: true })).toEqual({ kind: "text", lossy: true }));
-  test("local U+FFFD is a real character", () => expect(classifyText("a�b", { remote: false })).toEqual({ kind: "text" }));
+  test("local U+FFFD is a real character", () =>
+    expect(classifyText("a�b", { remote: false })).toEqual({ kind: "text" }));
 });

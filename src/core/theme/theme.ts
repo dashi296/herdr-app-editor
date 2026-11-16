@@ -2,8 +2,18 @@
 // (vendor/gpui-kit/crates/shell/src/syntax.rs semantic_name) to colors. Pure.
 
 export const SYNTAX_KEYS = [
-  "keyword", "string", "string.escape", "comment", "function", "type",
-  "number", "constant", "boolean", "variable", "operator", "punctuation",
+  "keyword",
+  "string",
+  "string.escape",
+  "comment",
+  "function",
+  "type",
+  "number",
+  "constant",
+  "boolean",
+  "variable",
+  "operator",
+  "punctuation",
 ] as const;
 export type SyntaxKey = (typeof SYNTAX_KEYS)[number];
 export type Hex = `#${string}`;
@@ -28,21 +38,38 @@ export function validateTheme(input: unknown): { ok: true; theme: EditorTheme } 
   if (!syntax) errors.push("syntax must be an object");
   for (const [k, v] of Object.entries(syntax ?? {})) {
     if (!(SYNTAX_KEYS as readonly string[]).includes(k)) errors.push(`syntax.${k} is not a syntax category`);
-    else if (typeof v !== "string" || !HEX.test(v)) errors.push(`syntax.${k} must be a #rrggbb color, got ${JSON.stringify(v)}`);
+    else if (typeof v !== "string" || !HEX.test(v))
+      errors.push(`syntax.${k} must be a #rrggbb color, got ${JSON.stringify(v)}`);
   }
   if (errors.length) return { ok: false, errors };
-  return { ok: true, theme: { name: o.name as string, appearance: o.appearance as "dark" | "light", syntax: syntax as EditorTheme["syntax"] } };
+  return {
+    ok: true,
+    theme: {
+      name: o.name as string,
+      appearance: o.appearance as "dark" | "light",
+      syntax: syntax as EditorTheme["syntax"],
+    },
+  };
 }
 
 /** Colors for EditorState: the theme's, with Herdr's palette for anything it leaves out. */
 export function resolveSyntax(theme: EditorTheme | null, herdr: Record<string, string>): Record<SyntaxKey, string> {
   const pick = (k: string) => herdr[k] ?? herdr.foreground ?? "#888888";
   const base: Record<SyntaxKey, string> = {
-    keyword: pick("ansi5"), string: pick("ansi2"), "string.escape": pick("ansi6"), comment: pick("dim"),
-    function: pick("ansi4"), type: pick("ansi3"), number: pick("ansi1"), constant: pick("ansi6"),
-    boolean: pick("ansi1"), variable: pick("foreground"), operator: pick("ansi6"), punctuation: pick("foreground"),
+    keyword: pick("ansi5"),
+    string: pick("ansi2"),
+    "string.escape": pick("ansi6"),
+    comment: pick("dim"),
+    function: pick("ansi4"),
+    type: pick("ansi3"),
+    number: pick("ansi1"),
+    constant: pick("ansi6"),
+    boolean: pick("ansi1"),
+    variable: pick("foreground"),
+    operator: pick("ansi6"),
+    punctuation: pick("foreground"),
   };
-  return { ...base, ...(theme?.syntax ?? {}) };
+  return { ...base, ...theme?.syntax };
 }
 
 /** The theme after `current` in `names`; unknown names go back to the first (Herdr). */

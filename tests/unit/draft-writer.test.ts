@@ -5,11 +5,17 @@ import { DraftWriter, type Timer } from "../../src/ports/draft-writer";
 class FakeTime implements Timer {
   t = 0;
   timers: { at: number; fn: () => void; dead: boolean }[] = [];
-  now() { return this.t; }
+  now() {
+    return this.t;
+  }
   after(ms: number, fn: () => void) {
     const timer = { at: this.t + ms, fn, dead: false };
     this.timers.push(timer);
-    return { cancel: () => { timer.dead = true; } };
+    return {
+      cancel: () => {
+        timer.dead = true;
+      },
+    };
   }
   async advance(ms: number) {
     const end = this.t + ms;
@@ -30,7 +36,15 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 function setup() {
   const time = new FakeTime();
   const saved: { at: number; v: unknown }[] = [];
-  const writer = new DraftWriter<unknown>({ save: async (v) => { saved.push({ at: time.now(), v }); } }, time, { debounceMs: 250, maxWaitMs: 1000 });
+  const writer = new DraftWriter<unknown>(
+    {
+      save: async (v) => {
+        saved.push({ at: time.now(), v });
+      },
+    },
+    time,
+    { debounceMs: 250, maxWaitMs: 1000 },
+  );
   return { time, saved, writer };
 }
 
@@ -45,7 +59,10 @@ describe("DraftWriter", () => {
   });
   test("continuous typing still writes within 1s of the first unsaved change", async () => {
     const { time, saved, writer } = setup();
-    for (let i = 0; i < 20; i++) { writer.update(`v${i}`, time); await time.advance(100); }
+    for (let i = 0; i < 20; i++) {
+      writer.update(`v${i}`, time);
+      await time.advance(100);
+    }
     expect(saved[0]).toEqual({ at: 1000, v: "v9" });
     expect(saved.every((s, i) => i === 0 || s.at - saved[i - 1]!.at <= 1000)).toBe(true);
   });
@@ -53,16 +70,28 @@ describe("DraftWriter", () => {
     const time = new FakeTime();
     const saved: unknown[] = [];
     let release!: () => void;
-    const writer = new DraftWriter<string>({
-      save: (v) => { saved.push(v); return v === "a" ? new Promise<void>((r) => { release = r; }) : Promise.resolve(); },
-    }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    const writer = new DraftWriter<string>(
+      {
+        save: (v) => {
+          saved.push(v);
+          return v === "a"
+            ? new Promise<void>((r) => {
+                release = r;
+              })
+            : Promise.resolve();
+        },
+      },
+      time,
+      { debounceMs: 250, maxWaitMs: 1000 },
+    );
     writer.update("a", time);
     await time.advance(250);
     writer.update("b", time);
     await time.advance(300);
     expect(saved).toEqual(["a"]);
     release();
-    await flush(); await flush();
+    await flush();
+    await flush();
     expect(saved).toEqual(["a", "b"]);
   });
   test("flush writes the pending change immediately", async () => {
@@ -78,8 +107,16 @@ describe("DraftWriter", () => {
     const errors: unknown[] = [];
     let fail = true;
     const saved: unknown[] = [];
-    const writer = new DraftWriter<string>({ save: async (v) => { if (fail) throw new Error("full"); saved.push(v); } }, time,
-      { debounceMs: 250, maxWaitMs: 1000, onError: (e) => errors.push(String(e)) });
+    const writer = new DraftWriter<string>(
+      {
+        save: async (v) => {
+          if (fail) throw new Error("full");
+          saved.push(v);
+        },
+      },
+      time,
+      { debounceMs: 250, maxWaitMs: 1000, onError: (e) => errors.push(String(e)) },
+    );
     writer.update("a", time);
     await time.advance(250);
     expect(errors).toEqual(["Error: full"]);
@@ -103,7 +140,16 @@ describe("DraftWriter failure keeps the snapshot (review B3)", () => {
     const time = new FakeTime();
     let fail = true;
     const saved: unknown[] = [];
-    const writer = new DraftWriter<string>({ save: async (v) => { if (fail) throw new Error("full"); saved.push(v); } }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    const writer = new DraftWriter<string>(
+      {
+        save: async (v) => {
+          if (fail) throw new Error("full");
+          saved.push(v);
+        },
+      },
+      time,
+      { debounceMs: 250, maxWaitMs: 1000 },
+    );
     writer.update("a", time);
     await time.advance(250);
     expect(saved).toEqual([]);
@@ -115,7 +161,16 @@ describe("DraftWriter failure keeps the snapshot (review B3)", () => {
     const time = new FakeTime();
     let fail = true;
     const saved: unknown[] = [];
-    const writer = new DraftWriter<string>({ save: async (v) => { if (fail) throw new Error("full"); saved.push(v); } }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    const writer = new DraftWriter<string>(
+      {
+        save: async (v) => {
+          if (fail) throw new Error("full");
+          saved.push(v);
+        },
+      },
+      time,
+      { debounceMs: 250, maxWaitMs: 1000 },
+    );
     writer.update("a", time);
     await time.advance(250);
     fail = false;
@@ -130,7 +185,16 @@ describe("flush reports a snapshot it could not write (review NB2)", () => {
     const time = new FakeTime();
     let fail = true;
     const saved: unknown[] = [];
-    const writer = new DraftWriter<string>({ save: async (v) => { if (fail) throw new Error("full"); saved.push(v); } }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    const writer = new DraftWriter<string>(
+      {
+        save: async (v) => {
+          if (fail) throw new Error("full");
+          saved.push(v);
+        },
+      },
+      time,
+      { debounceMs: 250, maxWaitMs: 1000 },
+    );
     writer.update("a", time);
     await expect(writer.flush()).rejects.toThrow("full");
     fail = false;
@@ -145,14 +209,27 @@ describe("discard wins over a failing write in flight (review NB)", () => {
     let reject!: (e: Error) => void;
     const saved: unknown[] = [];
     let calls = 0;
-    const writer = new DraftWriter<string>({
-      save: (v) => { calls++; if (calls === 1) return new Promise<void>((_, r) => { reject = r; }); saved.push(v); return Promise.resolve(); },
-    }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    const writer = new DraftWriter<string>(
+      {
+        save: (v) => {
+          calls++;
+          if (calls === 1)
+            return new Promise<void>((_, r) => {
+              reject = r;
+            });
+          saved.push(v);
+          return Promise.resolve();
+        },
+      },
+      time,
+      { debounceMs: 250, maxWaitMs: 1000 },
+    );
     writer.update("dirty", time);
     await time.advance(250);
     writer.discard();
     reject(new Error("full"));
-    await flush(); await flush();
+    await flush();
+    await flush();
     await writer.flush();
     expect(saved).toEqual([]);
   });

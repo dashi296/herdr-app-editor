@@ -2,14 +2,40 @@
 // so they map to the closest grammar, as the shipped Files mod does (defaults/mods/files/main.js:13).
 
 const ALIASES: Record<string, string> = {
-  ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", cjs: "js", js: "js",
-  json: "json", jsonc: "json",
-  rs: "rs", py: "py",
-  yaml: "yaml", yml: "yaml", toml: "yaml",
-  md: "md", markdown: "md",
-  html: "html", htm: "html", svelte: "html", vue: "html", css: "css",
-  sh: "sh", bash: "sh", zsh: "sh",
-  go: "go", c: "c", h: "c", cpp: "cpp", hpp: "cpp", java: "java", rb: "rb", sql: "sql", xml: "xml",
+  ts: "js",
+  tsx: "js",
+  mts: "js",
+  cts: "js",
+  jsx: "js",
+  mjs: "js",
+  cjs: "js",
+  js: "js",
+  json: "json",
+  jsonc: "json",
+  rs: "rs",
+  py: "py",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "yaml",
+  md: "md",
+  markdown: "md",
+  html: "html",
+  htm: "html",
+  svelte: "html",
+  vue: "html",
+  css: "css",
+  sh: "sh",
+  bash: "sh",
+  zsh: "sh",
+  go: "go",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  hpp: "cpp",
+  java: "java",
+  rb: "rb",
+  sql: "sql",
+  xml: "xml",
 };
 
 /** Syntax name for a path; "txt" (plain text) when the extension is unknown or absent. */
@@ -28,7 +54,11 @@ export function languageFor(path: string): string {
 export const HIGHLIGHT_LIMIT = 30_000;
 
 /** Syntax to use for a file of `length` UTF-16 units; `off` when highlighting was switched off for size. `force`: the user turned it back on. */
-export function highlightFor(path: string, length: number, opts: { force?: boolean; language?: string } = {}): { language: string; off: boolean } {
+export function highlightFor(
+  path: string,
+  length: number,
+  opts: { force?: boolean; language?: string } = {},
+): { language: string; off: boolean } {
   const language = opts.language ?? languageFor(path);
   if (!opts.force && language !== "txt" && length > HIGHLIGHT_LIMIT) return { language: "txt", off: true };
   return { language, off: false };

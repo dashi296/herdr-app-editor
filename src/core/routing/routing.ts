@@ -1,8 +1,16 @@
 // Opening files from editor-files in an editor pane (plan §3, spike S5). Pure.
 // Messages travel as `<mod>.<verb>:<json>` commands; they reach every shown copy, so each carries `to`.
 
-export interface PaneLite { pane: string; mod?: string; tab: string }
-export interface RegistryEntry { pane: string; tab: string; lastFocus: number }
+export interface PaneLite {
+  pane: string;
+  mod?: string;
+  tab: string;
+}
+export interface RegistryEntry {
+  pane: string;
+  tab: string;
+  lastFocus: number;
+}
 export type Registry = Record<string, RegistryEntry>;
 
 const liveEditors = (panes: PaneLite[], mod: string) =>
@@ -15,7 +23,12 @@ export function pruneRegistry(reg: Registry, panes: PaneLite[], mod: string): Re
 }
 
 /** The editor to send a file to: the most recently focused live editor in `tab`. */
-export function pickTarget(reg: Registry, panes: PaneLite[], mod: string, tab: string): { key: string; pane: string } | null {
+export function pickTarget(
+  reg: Registry,
+  panes: PaneLite[],
+  mod: string,
+  tab: string,
+): { key: string; pane: string } | null {
   const live = liveEditors(panes, mod);
   let best: { key: string; pane: string; at: number } | null = null;
   for (const [key, e] of Object.entries(reg)) {
@@ -39,23 +52,39 @@ export function encodeCommand(verb: string, payload: unknown): string {
 export function decodeCommand(command: string): { verb: string; payload: unknown; error?: true } {
   const i = command.indexOf(":");
   if (i < 0) return { verb: command, payload: null };
-  try { return { verb: command.slice(0, i), payload: JSON.parse(command.slice(i + 1)) }; }
-  catch { return { verb: command.slice(0, i), payload: null, error: true }; }
+  try {
+    return { verb: command.slice(0, i), payload: JSON.parse(command.slice(i + 1)) };
+  } catch {
+    return { verb: command.slice(0, i), payload: null, error: true };
+  }
 }
 
-export interface OpenMessage { to: string; req: string; file: string; on: string | null; sentAt: number }
+export interface OpenMessage {
+  to: string;
+  req: string;
+  file: string;
+  on: string | null;
+  sentAt: number;
+}
 
 /** Requests older than this are left alone (hot reload or a restarted copy: plan §3). */
 export const MAX_OPEN_AGE_MS = 2000;
 
-export function acceptOpen(self: { key: string; seen: string[]; now: number }, m: OpenMessage): "accept" | "not-mine" | "expired" | "duplicate" {
+export function acceptOpen(
+  self: { key: string; seen: string[]; now: number },
+  m: OpenMessage,
+): "accept" | "not-mine" | "expired" | "duplicate" {
   if (m.to !== self.key) return "not-mine";
   if (self.now - m.sentAt > MAX_OPEN_AGE_MS) return "expired";
   if (self.seen.includes(m.req)) return "duplicate";
   return "accept";
 }
 
-export interface OpenRequest { req: string; file: string; on: string | null }
+export interface OpenRequest {
+  req: string;
+  file: string;
+  on: string | null;
+}
 export type Choice = "save" | "discard" | "cancel";
 
 export type Effect =
@@ -65,7 +94,9 @@ export type Effect =
   | { type: "closeDialog"; overlay: string }
   | { type: "focusEditor" };
 
-export interface Routing { pending: (OpenRequest & { overlay: string | null }) | null }
+export interface Routing {
+  pending: (OpenRequest & { overlay: string | null }) | null;
+}
 
 export const idleRouting = (): Routing => ({ pending: null });
 
@@ -86,9 +117,11 @@ export function handleReply(s: Routing, reply: { req: string; choice: Choice }):
   const p = s.pending;
   if (!p || p.req !== reply.req) return { state: s, effects: [] };
   const effects: Effect[] =
-    reply.choice === "save" ? [{ type: "saveThenOpen", file: p.file, on: p.on }]
-    : reply.choice === "discard" ? [{ type: "open", file: p.file, on: p.on }]
-    : [{ type: "focusEditor" }];
+    reply.choice === "save"
+      ? [{ type: "saveThenOpen", file: p.file, on: p.on }]
+      : reply.choice === "discard"
+        ? [{ type: "open", file: p.file, on: p.on }]
+        : [{ type: "focusEditor" }];
   return { state: idleRouting(), effects };
 }
 
@@ -98,5 +131,8 @@ export function handleReply(s: Routing, reply: { req: string; choice: Choice }):
  */
 export function interacted(s: Routing): { state: Routing; effects: Effect[] } {
   if (!s.pending) return { state: s, effects: [] };
-  return { state: idleRouting(), effects: s.pending.overlay ? [{ type: "closeDialog", overlay: s.pending.overlay }] : [] };
+  return {
+    state: idleRouting(),
+    effects: s.pending.overlay ? [{ type: "closeDialog", overlay: s.pending.overlay }] : [],
+  };
 }

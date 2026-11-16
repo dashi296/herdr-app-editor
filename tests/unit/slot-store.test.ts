@@ -7,13 +7,18 @@ class MemoryIO implements SlotIO {
   files = new Map<string, string>();
   log: string[] = [];
   failWrites = false;
-  async read(rel: string) { return this.files.get(rel) ?? null; }
+  async read(rel: string) {
+    return this.files.get(rel) ?? null;
+  }
   async write(rel: string, text: string) {
     if (this.failWrites) throw new Error("disk full");
     this.log.push(`write ${rel}`);
     this.files.set(rel, text);
   }
-  async unlink(rel: string) { this.log.push(`unlink ${rel}`); this.files.delete(rel); }
+  async unlink(rel: string) {
+    this.log.push(`unlink ${rel}`);
+    this.files.delete(rel);
+  }
   dirs = new Set<string>();
   async removeDirIfEmpty(dir: string) {
     if (![...this.files.keys()].some((k) => k.startsWith(dir + "/"))) this.dirs.add(dir);
@@ -104,15 +109,25 @@ describe("SlotStore", () => {
 
 describe("SlotStore queues are shared between instances (review B6)", () => {
   test("two stores writing the same record never interleave", async () => {
-    let active = 0, maxActive = 0;
+    let active = 0,
+      maxActive = 0;
     const files = new Map<string, string>();
     const io: SlotIO = {
       read: async (r) => files.get(r) ?? null,
-      write: async (r, t) => { active++; maxActive = Math.max(maxActive, active); await new Promise((x) => setTimeout(x, 5)); files.set(r, t); active--; },
-      unlink: async (r) => { files.delete(r); },
+      write: async (r, t) => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((x) => setTimeout(x, 5));
+        files.set(r, t);
+        active--;
+      },
+      unlink: async (r) => {
+        files.delete(r);
+      },
       list: async () => [],
     };
-    const a = new SlotStore(io), b = new SlotStore(io);
+    const a = new SlotStore(io),
+      b = new SlotStore(io);
     await Promise.all([a.save("panes/k", { v: 1 }), b.save("panes/k", { v: 2 }), a.save("panes/k", { v: 3 })]);
     expect(maxActive).toBe(1);
     expect(await a.load("panes/k")).toEqual({ v: 3 });

@@ -31,9 +31,14 @@ export function listFiles(home: string, targets: string[]): string[] {
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
 /** Relative path → sha256 of every file under the targets, except files Herdr generates. */
-export function hashTargets(home: string, targets: string[], include: Record<string, string> = {}): Record<string, string> {
+export function hashTargets(
+  home: string,
+  targets: string[],
+  include: Record<string, string> = {},
+): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const t of targets) for (const rel of walk(home, t)) if (!generated(rel) || rel in include) out[rel] = sha256(join(home, rel));
+  for (const t of targets)
+    for (const rel of walk(home, t)) if (!generated(rel) || rel in include) out[rel] = sha256(join(home, rel));
   return out;
 }
 
