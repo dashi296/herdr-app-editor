@@ -262,8 +262,13 @@ export abstract class EditorView extends View {
       this.writer?.discard();
       try { await this.writer?.flush(); } catch (e) { this.draftError = String(e); }
       // Edited while waiting: that edit's draft stays, and "save, then open" must not continue (review).
-      if (this.doc !== saved) { cx.notify(); return false; }
-      await this.dropDraft();
+      // Switched to another file while waiting: the saved file's draft is stale, so remove it anyway (#10).
+      if (this.doc !== saved) {
+        if (this.doc?.path !== saved.path || this.doc?.machine !== saved.machine) await this.dropDraft(saved);
+        cx.notify();
+        return false;
+      }
+      await this.dropDraft(saved);
       if (this.doc !== saved) { cx.notify(); return false; }
     }
     cx.notify();
@@ -283,8 +288,8 @@ export abstract class EditorView extends View {
     return false;
   }
 
-  private async dropDraft() {
-    const d = this.doc;
+  /** Removes this pane's draft of `d` (the current document unless given). */
+  private async dropDraft(d: Doc | null = this.doc) {
     if (!d) return;
     await this.deps.store.remove(draftBase(d.machine, d.path, this.key)).catch((e) => { this.draftError = String(e); });
   }
