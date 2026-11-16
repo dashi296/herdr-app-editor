@@ -5,9 +5,9 @@ import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
 import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, shared, setShared } from "herdr";
 
 // src/core/names.ts
-var NS = "herdr-editor";
-var MOD_EDITOR = "herdr-editor";
-var MOD_FILES = "herdr-editor-files";
+var NS = "herdr-app-editor";
+var MOD_EDITOR = "herdr-app-editor";
+var MOD_FILES = "herdr-app-editor-files";
 var SHARED_KEY = NS;
 
 // src/core/routing/routing.ts

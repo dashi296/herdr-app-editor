@@ -6,9 +6,9 @@ This layout works like Herdr's own `main` layout, except the Files panel opens f
 
 ## What you see
 
-- The whole window is Herdr's `main` layout (spaces and agents on the left, tabs on top, Files and Changes panels on the right, status bar), cloned unchanged except for one block. The Files panel block (`id: "files"`) shows the `herdr-editor-files` mod instead of `files`.
-- **Files panel (`herdr-editor-files`):** the same tree as Herdr's Files panel, with the same 28 px rows, chevrons, folder and file icons and git marks. It follows the folder of the focused terminal. While an editor pane has focus, it follows a terminal in the same tab instead.
-- **Editor pane (`herdr-editor`)**, split to the right of the pane that was focused:
+- The whole window is Herdr's `main` layout (spaces and agents on the left, tabs on top, Files and Changes panels on the right, status bar), cloned unchanged except for one block. The Files panel block (`id: "files"`) shows the `herdr-app-editor-files` mod instead of `files`.
+- **Files panel (`herdr-app-editor-files`):** the same tree as Herdr's Files panel, with the same 28 px rows, chevrons, folder and file icons and git marks. It follows the folder of the focused terminal. While an editor pane has focus, it follows a terminal in the same tab instead.
+- **Editor pane (`herdr-app-editor`)**, split to the right of the pane that was focused:
   - Header, 34 px high, 12 px side padding, bottom border `theme().border`. From left to right:
     - a `●` dirty mark in `theme().accent` while the content differs from the file on disk
     - the file name in semibold
@@ -39,10 +39,10 @@ This layout works like Herdr's own `main` layout, except the Files panel opens f
 
 ## Built from
 
-- `layouts/herdr-editor.json`: Herdr's `main` layout (identical in 0.1.15, 0.1.16 and upstream `5216e6f`). The only change is the block `files`, whose content is `{ "mod": "herdr-editor-files" }`. The clone records `cloned_from`.
-- `mods/herdr-editor-files`: a fork of Herdr's `files` mod, Apache-2.0, with Lucide icons under ISC. It changes the click handler and the icon paths, follows a terminal while an editor is focused, and cancels its folder watch. It opens files with `run("pane.focus", { pane })` followed by `run("herdr-editor.open:<json>")`. A new pane comes from `pane.split { pane, direction: "right", mod: "herdr-editor", props: { key, file, on } }`, and the fork finds the new pane by comparing `panes()` before and after. It records `{ key → pane, tab, lastFocus }` under `shared("herdr-editor").registry`.
-- `mods/herdr-editor` (`focusable: true`): `EditorState` / `Editor` from `gpui-base`; `readTextFile`, `writeTextFile(path, text, expected)`, `exec("test", ["-w", path])`; `nextCommand()` for `open`, `reply` and `focus`; `openOverlay({ kind: "dialog", modal: true })` for the save dialog. The dialog is the same mod with props `role: "dialog"`, and it replies from `close()`. Drafts and pane state live under `appHome()/data/herdr-editor/` as A/B slot files written through `fs/promises`.
-- `mods/herdr-editor-uninstall`: overlay-only. Opened by `scripts/uninstall.ts`, it acts on `data/herdr-editor/uninstall-request.json` and writes its result to an A/B slot record. Opened by hand (`mod.open {"name": "herdr-editor-uninstall"}`), it offers "Close all editor panes" and then lists the folders to delete.
+- `layouts/herdr-app-editor.json`: Herdr's `main` layout (identical in 0.1.15, 0.1.16 and upstream `5216e6f`). The only change is the block `files`, whose content is `{ "mod": "herdr-app-editor-files" }`. The clone records `cloned_from`.
+- `mods/herdr-app-editor-files`: a fork of Herdr's `files` mod, Apache-2.0, with Lucide icons under ISC. It changes the click handler and the icon paths, follows a terminal while an editor is focused, and cancels its folder watch. It opens files with `run("pane.focus", { pane })` followed by `run("herdr-app-editor.open:<json>")`. A new pane comes from `pane.split { pane, direction: "right", mod: "herdr-app-editor", props: { key, file, on } }`, and the fork finds the new pane by comparing `panes()` before and after. It records `{ key → pane, tab, lastFocus }` under `shared("herdr-app-editor").registry`.
+- `mods/herdr-app-editor` (`focusable: true`): `EditorState` / `Editor` from `gpui-base`; `readTextFile`, `writeTextFile(path, text, expected)`, `exec("test", ["-w", path])`; `nextCommand()` for `open`, `reply` and `focus`; `openOverlay({ kind: "dialog", modal: true })` for the save dialog. The dialog is the same mod with props `role: "dialog"`, and it replies from `close()`. Drafts and pane state live under `appHome()/data/herdr-app-editor/` as A/B slot files written through `fs/promises`.
+- `mods/herdr-app-editor-uninstall`: overlay-only. Opened by `scripts/uninstall.ts`, it acts on `data/herdr-app-editor/uninstall-request.json` and writes its result to an A/B slot record. Opened by hand (`mod.open {"name": "herdr-app-editor-uninstall"}`), it offers "Close all editor panes" and then lists the folders to delete.
 - The source is TypeScript in `src/`, bundled with `bun build --target node --format esm`. The externals are `herdr`, `gpui-kit`, `gpui-base` and `fs/promises`. Themes are `editor-themes/*.json`. No programs run other than `test` (or PowerShell on Windows).
 
 ## Watch out
@@ -52,23 +52,23 @@ This layout works like Herdr's own `main` layout, except the Files panel opens f
 - `<mod>.<command>` reaches every shown copy, dialog overlays included, so every message carries a `to` key. A command sent to a copy that is not shown shows an error toast.
 - `writeTextFile` replaces read-only files when the folder is writable, and hard links and extended attributes are lost. Check write permission before saving.
 - `EditorState` cannot change language or colors, and `set_value()` clears undo and fires no `change` event.
-- `fs.writeFile` calls must not overlap, or files get corrupted. Herdr has no API to delete a `shared` key, so uninstall leaves `"herdr-editor": null`.
-- The names `herdr-editor`, `herdr-editor-files`, `herdr-editor-uninstall` and the layout `herdr-editor` are compiled into the code: command targets, the shared key and icon paths. If a name is taken, do not rename the copied folders; change `src/core/names.ts` and rebuild (`bun run build`).
+- `fs.writeFile` calls must not overlap, or files get corrupted. Herdr has no API to delete a `shared` key, so uninstall leaves `"herdr-app-editor": null`.
+- The names `herdr-app-editor`, `herdr-app-editor-files`, `herdr-app-editor-uninstall` and the layout `herdr-app-editor` are compiled into the code: command targets, the shared key and icon paths. If a name is taken, do not rename the copied folders; change `src/core/names.ts` and rebuild (`bun run build`).
 - Requires Herdr Desktop 0.1.16 or later (`EditorState.focus`, `checking()`, `watchFolder().cancel()`). Windows paths and permission checks have not been run on Windows yet.
 
 ## Done when
 
-- `herdr-app check` passes for `mods/herdr-editor`, `mods/herdr-editor-files` and `mods/herdr-editor-uninstall`, and `bun run ci` passes.
+- `herdr-app check` passes for `mods/herdr-app-editor`, `mods/herdr-app-editor-files` and `mods/herdr-app-editor-uninstall`, and `bun run ci` passes.
 - Clicking a file in Files opens it in an editor pane. Editing shows `●`. Cmd-s writes the file and the `●` disappears.
 - With unsaved edits, opening another file asks first, and Cancel keeps the edits.
 - Changing the file from a shell while it has unsaved edits shows the changed-on-disk banner. Saving after Keep mine is refused, and the file on disk is unchanged.
 - Closing the pane with unsaved edits and opening the file again offers to restore the draft.
 - A CRLF file stays CRLF after adding lines and saving.
 - A `chmod 444` file opens read-only.
-- `bun run uninstall:herdr` closes the editor panes, returns to the previous layout and removes `mods/herdr-editor*` and `layouts/herdr-editor.json`, while Herdr's own `files` mod is untouched.
+- `bun run uninstall:herdr` closes the editor panes, returns to the previous layout and removes `mods/herdr-app-editor*` and `layouts/herdr-app-editor.json`, while Herdr's own `files` mod is untouched.
 
 ## Install and remove
 
-- **From herdr.dev, or by copying:** copy `layouts/herdr-editor.json` into the app home's `layouts/`, and `mods/herdr-editor`, `mods/herdr-editor-files` and `mods/herdr-editor-uninstall` into `mods/`. Then run `herdr-app check` on each mod and `layout.switch {"name": "herdr-editor"}`. Nothing needs building: `main.js` is committed. No `keys.json` is needed.
-- **Removing a copied install:** open the uninstall overlay (`herdr-app do mod.open '{"name":"herdr-editor-uninstall"}'`) and press "Close all editor panes". Then switch back to your layout (ctrl-shift-l) and delete the three mod folders and the layout file. If you delete the folders while editor panes are open, those panes show "no mod folder" after the next start. Unsaved drafts stay in `data/herdr-editor/drafts` until you delete them.
+- **From herdr.dev, or by copying:** copy `layouts/herdr-app-editor.json` into the app home's `layouts/`, and `mods/herdr-app-editor`, `mods/herdr-app-editor-files` and `mods/herdr-app-editor-uninstall` into `mods/`. Then run `herdr-app check` on each mod and `layout.switch {"name": "herdr-app-editor"}`. Nothing needs building: `main.js` is committed. No `keys.json` is needed.
+- **Removing a copied install:** open the uninstall overlay (`herdr-app do mod.open '{"name":"herdr-app-editor-uninstall"}'`) and press "Close all editor panes". Then switch back to your layout (ctrl-shift-l) and delete the three mod folders and the layout file. If you delete the folders while editor panes are open, those panes show "no mod folder" after the next start. Unsaved drafts stay in `data/herdr-app-editor/drafts` until you delete them.
 - **From a clone of the repository:** `bun run install:herdr` and `bun run uninstall:herdr` do the same steps. They also record sha256 hashes of the installed files, refuse to overwrite or delete files someone changed, and switch back to the layout you used before installing.

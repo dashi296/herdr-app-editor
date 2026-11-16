@@ -4,11 +4,11 @@ import * as fs from "fs/promises";
 import { appHome } from "herdr";
 
 // src/core/names.ts
-var NS = "herdr-editor";
-var MOD_EDITOR = "herdr-editor";
-var MOD_FILES = "herdr-editor-files";
-var MOD_UNINSTALL = "herdr-editor-uninstall";
-var LAYOUT_NAME = "herdr-editor";
+var NS = "herdr-app-editor";
+var MOD_EDITOR = "herdr-app-editor";
+var MOD_FILES = "herdr-app-editor-files";
+var MOD_UNINSTALL = "herdr-app-editor-uninstall";
+var LAYOUT_NAME = "herdr-app-editor";
 var SHARED_KEY = NS;
 
 // src/adapters/herdr/slot-io.ts
