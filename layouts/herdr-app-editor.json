@@ -151,7 +151,7 @@
                       "id": "files",
                       "type": "block",
                       "content": {
-                        "mod": "herdr-editor-files"
+                        "mod": "herdr-app-editor-files"
                       }
                     },
                     {
