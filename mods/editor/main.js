@@ -494,6 +494,7 @@ class DraftWriter {
   timer = null;
   writing = null;
   lastError = undefined;
+  epoch = 0;
   constructor(sink, clock, opts) {
     this.sink = sink;
     this.clock = clock;
@@ -520,6 +521,8 @@ class DraftWriter {
       throw this.lastError;
   }
   discard() {
+    this.epoch++;
+    this.lastError = undefined;
     this.timer?.cancel();
     this.timer = null;
     this.pending = null;
@@ -533,12 +536,15 @@ class DraftWriter {
     this.writing = (async () => {
       while (this.pending) {
         const { value } = this.pending;
+        const epoch = this.epoch;
         this.pending = null;
         this.firstPendingAt = null;
         try {
           await this.sink.save(value);
           this.lastError = undefined;
         } catch (e) {
+          if (epoch !== this.epoch)
+            continue;
           this.lastError = e;
           if (!this.pending) {
             this.pending = { value };
@@ -703,10 +709,11 @@ class EditorView extends View {
       this.draftError = String(e);
     } });
     this.deps.store.save(paneBase(this.key), { file: path, on }).catch(() => {});
-    const offer = await this.findDraft(path, on, text);
+    const found = await this.findDraft(path, on, text);
     if (stale())
       return;
-    this.draftOffer = offer;
+    this.draftOffer = found.draft;
+    this.draftError = found.error;
     this.screen = { kind: "ready" };
   }
   showMessage(text) {
@@ -744,9 +751,9 @@ class EditorView extends View {
           best = d;
       }
     } catch (e) {
-      this.draftError = String(e);
+      return { draft: best, error: String(e) };
     }
-    return best;
+    return { draft: best, error: null };
   }
   onChange(cx) {
     if (!this.doc || !this.code)
@@ -783,27 +790,34 @@ class EditorView extends View {
       if (!this.doc || this.doc.generation !== request.generation || this.doc.path !== request.path)
         return false;
       this.doc = saveSucceeded(this.doc, request.generation);
-      if (!isDirty(this.doc)) {
-        this.writer?.discard();
-        await this.writer?.flush();
-        await this.dropDraft();
-      }
-      cx.notify();
-      return true;
     } catch (e) {
-      let reread;
-      try {
-        const now = await this.deps.files.read(request.path, request.machine);
-        reread = now === null ? { kind: "missing" } : { kind: "text", text: now };
-      } catch (re) {
-        reread = { kind: "unreadable", error: String(re) };
-      }
-      if (!this.doc || this.doc.path !== request.path || this.doc.machine !== request.machine)
-        return false;
-      this.doc = saveFailed(this.doc, request.generation, reread, String(e));
-      cx.notify();
-      return false;
+      return await this.saveFailedAfter(request, e, cx);
     }
+    if (this.doc && !isDirty(this.doc)) {
+      this.writer?.discard();
+      try {
+        await this.writer?.flush();
+      } catch (e) {
+        this.draftError = String(e);
+      }
+      await this.dropDraft();
+    }
+    cx.notify();
+    return true;
+  }
+  async saveFailedAfter(request, e, cx) {
+    let reread;
+    try {
+      const now = await this.deps.files.read(request.path, request.machine);
+      reread = now === null ? { kind: "missing" } : { kind: "text", text: now };
+    } catch (re) {
+      reread = { kind: "unreadable", error: String(re) };
+    }
+    if (!this.doc || this.doc.path !== request.path || this.doc.machine !== request.machine)
+      return false;
+    this.doc = saveFailed(this.doc, request.generation, reread, String(e));
+    cx.notify();
+    return false;
   }
   async dropDraft() {
     const d = this.doc;

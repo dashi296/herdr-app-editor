@@ -138,3 +138,22 @@ describe("flush reports a snapshot it could not write (review NB2)", () => {
     expect(saved).toEqual(["a"]);
   });
 });
+
+describe("discard wins over a failing write in flight (review NB)", () => {
+  test("a discarded snapshot is not restored when its write fails", async () => {
+    const time = new FakeTime();
+    let reject!: (e: Error) => void;
+    const saved: unknown[] = [];
+    let calls = 0;
+    const writer = new DraftWriter<string>({
+      save: (v) => { calls++; if (calls === 1) return new Promise<void>((_, r) => { reject = r; }); saved.push(v); return Promise.resolve(); },
+    }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    writer.update("dirty", time);
+    await time.advance(250);
+    writer.discard();
+    reject(new Error("full"));
+    await flush(); await flush();
+    await writer.flush();
+    expect(saved).toEqual([]);
+  });
+});

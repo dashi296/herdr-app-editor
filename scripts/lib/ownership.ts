@@ -19,7 +19,7 @@ function walk(home: string, target: string): string[] {
   if (!existsSync(abs)) return [];
   if (!statSync(abs).isDirectory()) return [target];
   return readdirSync(abs, { recursive: true })
-    .map((f) => join(target, String(f)))
+    .map((f) => join(target, String(f)).replace(/\\/g, "/")) // one separator on every OS
     .filter((rel) => statSync(join(home, rel)).isFile());
 }
 

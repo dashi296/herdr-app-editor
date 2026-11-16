@@ -21,6 +21,8 @@ export class DraftWriter<T> {
   private timer: { cancel(): void } | null = null;
   private writing: Promise<void> | null = null;
   private lastError: unknown = undefined;
+  /** Bumped by discard(): a failing write that started before it must not bring its snapshot back. */
+  private epoch = 0;
 
   constructor(private sink: DraftSink<T>, private clock: { now(): number }, private opts: DraftWriterOptions) {}
 
@@ -45,6 +47,8 @@ export class DraftWriter<T> {
 
   /** Forgets the pending snapshot (the edits were saved or discarded). A write already running finishes. */
   discard(): void {
+    this.epoch++;
+    this.lastError = undefined;
     this.timer?.cancel();
     this.timer = null;
     this.pending = null;
@@ -57,12 +61,15 @@ export class DraftWriter<T> {
     this.writing = (async () => {
       while (this.pending) {
         const { value } = this.pending;
+        const epoch = this.epoch;
         this.pending = null;
         this.firstPendingAt = null;
         try { await this.sink.save(value); this.lastError = undefined; }
         catch (e) {
+          // Keep the snapshot so flush() or the next change retries it, unless a newer one arrived
+          // or it was discarded while being written.
+          if (epoch !== this.epoch) continue;
           this.lastError = e;
-          // Keep the snapshot so flush() or the next change retries it, unless a newer one arrived.
           if (!this.pending) { this.pending = { value }; this.firstPendingAt ??= this.clock.now(); }
           this.opts.onError?.(e);
           break;

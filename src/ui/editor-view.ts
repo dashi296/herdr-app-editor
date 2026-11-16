@@ -6,7 +6,7 @@ import * as herdr from "herdr";
 import { closeOverlay, focused, nextCommand, openOverlay, panes, props, run, settings, shared, setShared, spaces, theme, window } from "herdr";
 import {
   acknowledgeExternal, beginPoll, beginSave, edit, isDirty, open, pollResult, reloadFrom, saveFailed, saveSucceeded,
-  type Doc, type Reread,
+  type Doc, type Reread, type SaveRequest,
 } from "../core/document/document";
 import { draftBase, draftDir, paneBase } from "../core/draft/paths";
 import { highlightFor } from "../core/language/language";
@@ -172,9 +172,10 @@ export abstract class EditorView extends View {
     this.writer = new DraftWriter<Draft>({ save: (d) => this.deps.store.save(draftBase(d.machine, d.path, d.ownerKey), d) }, { now: () => Date.now() },
       { debounceMs: 250, maxWaitMs: 1000, onError: (e) => { this.draftError = String(e); } });
     this.deps.store.save(paneBase(this.key), { file: path, on }).catch(() => {});
-    const offer = await this.findDraft(path, on, text);
+    const found = await this.findDraft(path, on, text);
     if (stale()) return;
-    this.draftOffer = offer;
+    this.draftOffer = found.draft;
+    this.draftError = found.error;
     this.screen = { kind: "ready" };
   }
 
@@ -201,7 +202,7 @@ export abstract class EditorView extends View {
   }
 
   /** The newest draft of this file that differs from disk. Returned, not stored: the caller commits it only if still current. */
-  private async findDraft(path: string, on: string | null, disk: string): Promise<Draft | null> {
+  private async findDraft(path: string, on: string | null, disk: string): Promise<{ draft: Draft | null; error: string | null }> {
     let best: Draft | null = null;
     try {
       const dir = draftDir(on, path);
@@ -210,8 +211,8 @@ export abstract class EditorView extends View {
         if (!d || d.path !== path || d.machine !== on || d.text === disk) continue;
         if (!best || d.savedAt > best.savedAt) best = d;
       }
-    } catch (e) { this.draftError = String(e); }
-    return best;
+    } catch (e) { return { draft: best, error: String(e) }; }
+    return { draft: best, error: null };
   }
 
   // ---------- editing and saving ----------
@@ -245,20 +246,30 @@ export abstract class EditorView extends View {
       // Another document now: the old file was saved, but nothing that follows (e.g. "save, then open") may act on this one.
       if (!this.doc || this.doc.generation !== request.generation || this.doc.path !== request.path) return false;
       this.doc = saveSucceeded(this.doc, request.generation);
-      if (!isDirty(this.doc)) { this.writer?.discard(); await this.writer?.flush(); await this.dropDraft(); }
-      cx.notify();
-      return true;
     } catch (e) {
-      let reread: Reread;
-      try {
-        const now = await this.deps.files.read(request.path, request.machine);
-        reread = now === null ? { kind: "missing" } : { kind: "text", text: now };
-      } catch (re) { reread = { kind: "unreadable", error: String(re) }; }
-      if (!this.doc || this.doc.path !== request.path || this.doc.machine !== request.machine) return false;
-      this.doc = saveFailed(this.doc, request.generation, reread, String(e));
-      cx.notify();
-      return false;
+      return await this.saveFailedAfter(request, e, cx);
     }
+    // The file is saved. Draft cleanup failing must not turn that into a save failure (review).
+    if (this.doc && !isDirty(this.doc)) {
+      this.writer?.discard();
+      try { await this.writer?.flush(); } catch (e) { this.draftError = String(e); }
+      await this.dropDraft();
+    }
+    cx.notify();
+    return true;
+  }
+
+  /** writeTextFile rejected: classify by what a re-read observes (plan §2). */
+  private async saveFailedAfter(request: SaveRequest, e: unknown, cx: Context | AsyncContext): Promise<boolean> {
+    let reread: Reread;
+    try {
+      const now = await this.deps.files.read(request.path, request.machine);
+      reread = now === null ? { kind: "missing" } : { kind: "text", text: now };
+    } catch (re) { reread = { kind: "unreadable", error: String(re) }; }
+    if (!this.doc || this.doc.path !== request.path || this.doc.machine !== request.machine) return false;
+    this.doc = saveFailed(this.doc, request.generation, reread, String(e));
+    cx.notify();
+    return false;
   }
 
   private async dropDraft() {
