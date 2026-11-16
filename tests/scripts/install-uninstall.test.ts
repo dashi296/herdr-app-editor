@@ -1,0 +1,199 @@
+// scripts/install.ts and scripts/uninstall.ts run as child processes against a temporary app home,
+// with a fake `herdr-app` on PATH (fake-herdr-app.ts). They copy the built mods from the repo.
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
+import { LAYOUT_NAME, MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, NS } from "../../src/core/names";
+import { REQUEST_FILE } from "../../src/core/uninstall/protocol";
+import type { FakeState } from "./fake-herdr-app";
+
+const REPO = join(import.meta.dir, "..", "..");
+const MODS = [MOD_EDITOR, MOD_FILES, MOD_UNINSTALL];
+const TARGETS = [...MODS.map((m) => `mods/${m}`), `layouts/${LAYOUT_NAME}.json`];
+
+let root = "",
+  home = "",
+  statePath = "";
+
+function setState(patch: Partial<FakeState>) {
+  const now: FakeState = existsSync(statePath)
+    ? JSON.parse(readFileSync(statePath, "utf8"))
+    : { running: true, layout: "work", overlays: [], uninstallStatus: "complete", remaining: [], calls: [] };
+  writeFileSync(statePath, JSON.stringify({ ...now, ...patch }));
+}
+const state = (): FakeState => JSON.parse(readFileSync(statePath, "utf8"));
+
+// Windows spells it "Path"; set the existing key so the fake comes first instead of adding a second one.
+const PATH_KEY = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+
+function script(name: "install" | "uninstall", ...flags: string[]) {
+  const r = Bun.spawnSync([process.execPath, join(REPO, "scripts", `${name}.ts`), ...flags], {
+    cwd: REPO,
+    env: {
+      ...process.env,
+      [PATH_KEY]: `${join(root, "bin")}${delimiter}${process.env[PATH_KEY] ?? ""}`,
+      HERDR_APP_HOME: home,
+      FAKE_HERDR_STATE: statePath,
+    },
+  });
+  return { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() };
+}
+
+const install = () => script("install", "--no-switch");
+const at = (rel: string) => join(home, rel);
+const installed = () => TARGETS.filter((t) => existsSync(at(t)));
+const manifest = () => JSON.parse(readFileSync(at(`data/${NS}/install.json`), "utf8"));
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "herdr-scripts-"));
+  home = join(root, "home");
+  statePath = join(root, "state.json");
+  mkdirSync(join(home, "mods"), { recursive: true });
+  mkdirSync(join(home, "layouts"), { recursive: true });
+  mkdirSync(join(root, "bin"));
+  const fake = join(import.meta.dir, "fake-herdr-app.ts");
+  if (process.platform === "win32") {
+    // Found through PATHEXT; not run on Windows yet (CI is Linux).
+    writeFileSync(join(root, "bin", "herdr-app.cmd"), `@"${process.execPath}" "${fake}" %*\r\n`);
+  } else {
+    const bin = join(root, "bin", "herdr-app");
+    writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
+    chmodSync(bin, 0o755);
+  }
+  setState({});
+});
+afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+describe("install", () => {
+  test("stops when Herdr is not running", () => {
+    setState({ running: false });
+    const r = install();
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("Herdr is not running");
+    expect(installed()).toEqual([]);
+  });
+
+  test("copies the mods and the layout and records their hashes and the current layout", () => {
+    const r = install();
+    expect(r.code).toBe(0);
+    expect(installed()).toEqual(TARGETS);
+    expect(readFileSync(at(`mods/${MOD_EDITOR}/main.js`), "utf8")).toBe(
+      readFileSync(join(REPO, "mods", MOD_EDITOR, "main.js"), "utf8"),
+    );
+    const m = manifest();
+    expect(m.files).toEqual(TARGETS);
+    expect(m.previousLayout).toBe("work");
+    expect(Object.keys(m.hashes)).toContain(`mods/${MOD_EDITOR}/main.js`);
+    expect(state().calls.some((c) => c[1] === "layout.switch")).toBe(false); // --no-switch
+  });
+
+  test("does not overwrite a folder it did not install", () => {
+    mkdirSync(at(`mods/${MOD_EDITOR}`));
+    writeFileSync(at(`mods/${MOD_EDITOR}/main.js`), "someone else's mod");
+    const r = install();
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`mods/${MOD_EDITOR}`);
+    expect(readFileSync(at(`mods/${MOD_EDITOR}/main.js`), "utf8")).toBe("someone else's mod");
+    expect(existsSync(at(`mods/${MOD_FILES}`))).toBe(false);
+  });
+
+  test("reinstalling over changed files needs --force", () => {
+    expect(install().code).toBe(0);
+    writeFileSync(at(`mods/${MOD_EDITOR}/main.js`), "edited by hand");
+    const r = install();
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`changed: mods/${MOD_EDITOR}/main.js`);
+    expect(readFileSync(at(`mods/${MOD_EDITOR}/main.js`), "utf8")).toBe("edited by hand");
+
+    expect(script("install", "--no-switch", "--force").code).toBe(0);
+    expect(readFileSync(at(`mods/${MOD_EDITOR}/main.js`), "utf8")).not.toBe("edited by hand");
+  });
+
+  test("a reinstall keeps the layout recorded by the first install", () => {
+    expect(install().code).toBe(0);
+    setState({ layout: LAYOUT_NAME });
+    expect(install().code).toBe(0);
+    expect(manifest().previousLayout).toBe("work");
+  });
+
+  test("an install record without hashes needs --force", () => {
+    expect(install().code).toBe(0);
+    const { hashes: _h, ...old } = manifest();
+    writeFileSync(at(`data/${NS}/install.json`), JSON.stringify(old));
+    expect(install().code).toBe(1);
+    expect(script("install", "--no-switch", "--force").code).toBe(0);
+    expect(manifest().hashes).toBeDefined();
+  });
+});
+
+describe("uninstall", () => {
+  test("stops when Herdr is not running", () => {
+    expect(install().code).toBe(0);
+    setState({ running: false });
+    const r = script("uninstall");
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("Herdr is not running");
+    expect(existsSync(at(`data/${NS}/${REQUEST_FILE}`))).toBe(false);
+    expect(installed()).toEqual(TARGETS);
+  });
+
+  test("without an install record nothing is closed or removed", () => {
+    mkdirSync(at(`mods/${MOD_EDITOR}`));
+    writeFileSync(at(`mods/${MOD_EDITOR}/main.js`), "x");
+    const r = script("uninstall");
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("no install record");
+    expect(existsSync(at(`mods/${MOD_EDITOR}/main.js`))).toBe(true);
+    expect(state().calls.some((c) => c[1] === "mod.open")).toBe(false);
+  });
+
+  test("changed or added files stop it before any pane is closed", () => {
+    expect(install().code).toBe(0);
+    writeFileSync(at(`mods/${MOD_FILES}/notes.txt`), "mine");
+    const r = script("uninstall");
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`added: mods/${MOD_FILES}/notes.txt`);
+    expect(installed()).toEqual(TARGETS);
+    expect(state().calls.some((c) => c[1] === "mod.open")).toBe(false);
+  });
+
+  test("closes the panes, switches back to the previous layout and removes only its own files", () => {
+    mkdirSync(at("mods/other"));
+    writeFileSync(at("mods/other/main.js"), "another mod");
+    expect(install().code).toBe(0);
+    setState({ layout: LAYOUT_NAME });
+    mkdirSync(at(`data/${MOD_FILES}`), { recursive: true });
+    const r = script("uninstall");
+    expect(r.code).toBe(0);
+    expect(
+      state()
+        .calls.filter((c) => c[0] === "do")
+        .map((c) => c[1]),
+    ).toEqual(["mod.open", "layout.switch"]);
+    expect(state().layout).toBe("work");
+    expect(installed()).toEqual([]);
+    expect(existsSync(at(`data/${MOD_FILES}`))).toBe(false);
+    expect(existsSync(at(`data/${NS}`))).toBe(false);
+    expect(readFileSync(at("mods/other/main.js"), "utf8")).toBe("another mod");
+  });
+
+  test("unsaved drafts are kept; the rest of its data folder goes", () => {
+    expect(install().code).toBe(0);
+    mkdirSync(at(`data/${NS}/drafts/abc`), { recursive: true });
+    writeFileSync(at(`data/${NS}/drafts/abc/k1.a.json`), "{}");
+    expect(script("uninstall").code).toBe(0);
+    expect(existsSync(at(`data/${NS}/drafts/abc/k1.a.json`))).toBe(true);
+    expect(existsSync(at(`data/${NS}/install.json`))).toBe(false);
+    expect(existsSync(at(`data/${NS}/${REQUEST_FILE}`))).toBe(false);
+  });
+
+  test("a cancelled close removes nothing", () => {
+    expect(install().code).toBe(0);
+    setState({ uninstallStatus: "incomplete", remaining: ["p3"] });
+    const r = script("uninstall");
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("Editor panes still open: p3");
+    expect(installed()).toEqual(TARGETS);
+  });
+});
