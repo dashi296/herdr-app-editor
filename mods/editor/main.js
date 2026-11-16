@@ -58,6 +58,13 @@ class HerdrSlotIO {
     if (await fs.exists(path))
       await fs.unlink(path);
   }
+  async removeDirIfEmpty(relDir) {
+    try {
+      const path = this.abs(relDir);
+      if (await fs.exists(path) && (await fs.readdir(path)).length === 0)
+        await fs.rmdir(path);
+    } catch {}
+  }
   async list(relDir) {
     const path = this.abs(relDir);
     if (!await fs.exists(path))
@@ -208,6 +215,9 @@ class SlotStore {
         else
           await this.io.unlink(f[step.slot]);
       }
+      const dir = base.slice(0, base.lastIndexOf("/"));
+      if (dir)
+        await this.io.removeDirIfEmpty?.(dir);
     });
   }
   async owners(relDir) {

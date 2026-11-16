@@ -32,6 +32,13 @@ export class HerdrSlotIO implements SlotIO {
     if (await fs.exists(path)) await fs.unlink(path);
   }
 
+  async removeDirIfEmpty(relDir: string): Promise<void> {
+    try {
+      const path = this.abs(relDir);
+      if ((await fs.exists(path)) && (await fs.readdir(path)).length === 0) await fs.rmdir(path);
+    } catch { /* best effort */ }
+  }
+
   async list(relDir: string): Promise<string[]> {
     const path = this.abs(relDir);
     if (!(await fs.exists(path))) return [];

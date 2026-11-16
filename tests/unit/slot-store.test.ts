@@ -14,6 +14,10 @@ class MemoryIO implements SlotIO {
     this.files.set(rel, text);
   }
   async unlink(rel: string) { this.log.push(`unlink ${rel}`); this.files.delete(rel); }
+  dirs = new Set<string>();
+  async removeDirIfEmpty(dir: string) {
+    if (![...this.files.keys()].some((k) => k.startsWith(dir + "/"))) this.dirs.add(dir);
+  }
   async list(dir: string) {
     return [...this.files.keys()].filter((k) => k.startsWith(dir + "/")).map((k) => k.slice(dir.length + 1));
   }
@@ -68,6 +72,16 @@ describe("SlotStore", () => {
     await s.remove("panes/k1");
     expect(io.files.size).toBe(0);
     expect(await s.load("panes/k1")).toBeNull();
+  });
+  test("removing the last record of a folder removes the folder", async () => {
+    const io = new MemoryIO();
+    const s = new SlotStore(io);
+    await s.save("drafts/h/k1", { v: 1 });
+    await s.save("drafts/h/k2", { v: 1 });
+    await s.remove("drafts/h/k1");
+    expect(io.dirs.has("drafts/h")).toBe(false);
+    await s.remove("drafts/h/k2");
+    expect(io.dirs.has("drafts/h")).toBe(true);
   });
   test("a failed write is reported and the previous record survives", async () => {
     const io = new MemoryIO();

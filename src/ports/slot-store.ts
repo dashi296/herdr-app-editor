@@ -10,6 +10,8 @@ export interface SlotIO {
   unlink(rel: string): Promise<void>;
   /** Names of the files in a folder; empty when the folder is missing. */
   list(relDir: string): Promise<string[]>;
+  /** Removes a folder only if it is empty; never throws. */
+  removeDirIfEmpty?(relDir: string): Promise<void>;
 }
 
 export class SlotStore {
@@ -53,6 +55,8 @@ export class SlotStore {
         if (step.op === "write") await this.io.write(f[step.slot], JSON.stringify(step.record));
         else await this.io.unlink(f[step.slot]);
       }
+      const dir = base.slice(0, base.lastIndexOf("/"));
+      if (dir) await this.io.removeDirIfEmpty?.(dir);
     });
   }
 
