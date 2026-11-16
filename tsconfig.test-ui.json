@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.host.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["src", "tests/ui", "types/gpui-kit.d.ts"],
+  "exclude": []
+}
