@@ -209,6 +209,19 @@ describe("openFile", () => {
     expect(v.doc?.text).toBe("new");
   });
 
+  test("an older open of a missing file does not blank out the newer document (review B1)", async () => {
+    const v = await opened();
+    files.disk.set("/p/new.txt", "new");
+    const gate = deferred<void>();
+    files.gates.read = gate;
+    const first = v.openFile("/p/gone.txt", null, cx);
+    await v.openFile("/p/new.txt", null, cx);
+    gate.resolve();
+    await first;
+    expect(v.screen.kind).toBe("ready");
+    expect(v.doc?.path).toBe("/p/new.txt");
+  });
+
   test("leaving a dirty document drops its draft", async () => {
     const v = await opened();
     code().type("edited\n", cx);

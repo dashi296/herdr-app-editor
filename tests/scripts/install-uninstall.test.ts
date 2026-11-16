@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { LAYOUT_NAME, MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, NS } from "../../src/core/names";
 import { REQUEST_FILE } from "../../src/core/uninstall/protocol";
 import type { FakeState } from "./fake-herdr-app";
@@ -24,12 +24,15 @@ function setState(patch: Partial<FakeState>) {
 }
 const state = (): FakeState => JSON.parse(readFileSync(statePath, "utf8"));
 
+// Windows spells it "Path"; set the existing key so the fake comes first instead of adding a second one.
+const PATH_KEY = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+
 function script(name: "install" | "uninstall", ...flags: string[]) {
   const r = Bun.spawnSync([process.execPath, join(REPO, "scripts", `${name}.ts`), ...flags], {
     cwd: REPO,
     env: {
       ...process.env,
-      PATH: `${join(root, "bin")}:${process.env.PATH}`,
+      [PATH_KEY]: `${join(root, "bin")}${delimiter}${process.env[PATH_KEY] ?? ""}`,
       HERDR_APP_HOME: home,
       FAKE_HERDR_STATE: statePath,
     },
@@ -49,9 +52,15 @@ beforeEach(() => {
   mkdirSync(join(home, "mods"), { recursive: true });
   mkdirSync(join(home, "layouts"), { recursive: true });
   mkdirSync(join(root, "bin"));
-  const bin = join(root, "bin", "herdr-app");
-  writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${join(import.meta.dir, "fake-herdr-app.ts")}" "$@"\n`);
-  chmodSync(bin, 0o755);
+  const fake = join(import.meta.dir, "fake-herdr-app.ts");
+  if (process.platform === "win32") {
+    // Found through PATHEXT; not run on Windows yet (CI is Linux).
+    writeFileSync(join(root, "bin", "herdr-app.cmd"), `@"${process.execPath}" "${fake}" %*\r\n`);
+  } else {
+    const bin = join(root, "bin", "herdr-app");
+    writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
+    chmodSync(bin, 0o755);
+  }
   setState({});
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
