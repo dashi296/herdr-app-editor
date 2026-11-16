@@ -9,6 +9,8 @@ module.exports = {
       from: { path: "^src/core/" }, to: { path: HOST } },
     { name: "ports-only-core", severity: "error",
       from: { path: "^src/ports/" }, to: { pathNot: "^src/(core|ports)/" } },
+    { name: "extensions-only-core", severity: "error", comment: "extensions are pure: core types and helpers only",
+      from: { path: "^src/extensions/" }, to: { pathNot: "^src/(core|extensions)/" } },
     { name: "ui-not-adapters", severity: "error",
       from: { path: "^src/ui/" }, to: { path: "^src/adapters/" } },
     { name: "only-entries-wire", severity: "error", comment: "nothing but entries imports entries",

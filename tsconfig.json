@@ -15,5 +15,5 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "include": ["src/core", "src/ports", "tests", "scripts"]
+  "include": ["src/core", "src/ports", "src/extensions", "tests", "scripts"]
 }

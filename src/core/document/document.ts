@@ -110,3 +110,13 @@ export function acknowledgeExternal(d: Doc): Doc {
   const { external, ...rest } = d;
   return { ...rest, status: isDirty(d) ? "dirty" : "clean", acknowledged: external };
 }
+
+/**
+ * Replaces the text with what a beforeSave extension returned. Its line endings become the
+ * document's, so the save writes exactly that text (prepareForSave would otherwise convert it back).
+ */
+export function applyFormatted(d: Doc, text: string): Doc {
+  const eol = detectEol(text);
+  const next = edit(d, text);
+  return eol === "none" || eol === next.eol ? next : settle({ ...next, eol });
+}
