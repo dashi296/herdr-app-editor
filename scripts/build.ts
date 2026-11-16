@@ -1,8 +1,8 @@
 // Builds mods/<name>/main.js from src/entries/*.ts and checks the output (plan §1 ビルド, spike S1).
 //   bun run scripts/build.ts
-import { cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, isValidModName } from "../src/core/names";
+import { LAYOUT_NAME, MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, isValidModName } from "../src/core/names";
 
 const HOST = ["herdr", "gpui-kit", "gpui-base", "fs/promises"];
 const ROOT = join(import.meta.dir, "..");
@@ -11,7 +11,7 @@ interface ModSpec { name: string; entry: string; manifest: Record<string, unknow
 
 const mods: ModSpec[] = [
   { name: MOD_EDITOR, entry: "src/entries/editor.ts", manifest: { place: "none", focusable: true } },
-  { name: MOD_UNINSTALL, entry: "src/entries/editor-uninstall.ts", manifest: { place: "none", overlay: { width: 480, height: 220 } } },
+  { name: MOD_UNINSTALL, entry: "src/entries/editor-uninstall.ts", manifest: { place: "none", overlay: { width: 520, height: 260 } } },
   {
     name: MOD_FILES, entry: "src/entries/editor-files.js", manifest: { place: "none" },
     assets: ["chevron-down.svg", "chevron-right.svg", "file.svg", "folder.svg", "LICENSE", "LICENSE-Lucide.txt"].map((f) => [`vendor/herdr-files/${f}`, f]),
@@ -44,8 +44,27 @@ for (const mod of mods) {
   for (const [from, to] of mod.assets ?? []) cpSync(join(ROOT, from), join(out, to));
 }
 
+// layouts/<LAYOUT_NAME>.json: Herdr's main layout with the Files block pointing at the fork.
+{
+  const layout = JSON.parse(readFileSync(join(ROOT, "vendor/herdr-layouts/main.json"), "utf8"));
+  let replaced = 0;
+  const walk = (n: unknown): void => {
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    if (!n || typeof n !== "object") return;
+    const o = n as Record<string, unknown>;
+    const c = o.content as { mod?: string } | undefined;
+    if (c && c.mod === "files") { c.mod = MOD_FILES; replaced++; }
+    Object.values(o).forEach(walk);
+  };
+  walk(layout);
+  if (replaced !== 1) failed.push(`layout: expected one Files block, found ${replaced}`);
+  layout.cloned_from = { name: "main", version: "0.1.16 (identical in 0.1.15 and herdr-app 5216e6f)" };
+  mkdirSync(join(ROOT, "layouts"), { recursive: true });
+  writeFileSync(join(ROOT, "layouts", `${LAYOUT_NAME}.json`), JSON.stringify(layout, null, 2) + "\n");
+}
+
 if (failed.length) {
   console.error(failed.join("\n"));
   process.exit(1);
 }
-console.log(`built ${mods.map((m) => `mods/${m.name}`).join(", ")}`);
+console.log(`built ${mods.map((m) => `mods/${m.name}`).join(", ")}, layouts/${LAYOUT_NAME}.json`);

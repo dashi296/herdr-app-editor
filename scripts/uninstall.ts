@@ -2,7 +2,7 @@
 //   bun run scripts/uninstall.ts [--force]
 import { readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { NS } from "../src/core/names";
+import { MOD_UNINSTALL, NS } from "../src/core/names";
 import { slotFiles } from "../src/core/draft/paths";
 import { pickCurrent } from "../src/core/store/slots";
 import { REQUEST_FILE, RESULT_BASE, type UninstallResult } from "../src/core/uninstall/protocol";
@@ -21,8 +21,8 @@ const force = process.argv.includes("--force");
 if (!manifest?.hashes && !force) {
   console.error(manifest
     ? "Stopped: the install record has no file hashes, so changes to the installed files cannot be detected."
-    : "Stopped: no install record (data/editor/install.json), so the files to remove cannot be confirmed as ours.");
-  console.error("Check mods/editor*, layouts/editor.json in the app home, then run again with --force. Nothing was closed or removed.");
+    : `Stopped: no install record (data/${NS}/install.json), so the files to remove cannot be confirmed as ours.`);
+  console.error(`Check mods/${NS}*, layouts/${LAYOUT}.json in the app home, then run again with --force. Nothing was closed or removed.`);
   process.exit(1);
 }
 if (manifest?.hashes && !force) {
@@ -44,7 +44,7 @@ const nonce = crypto.randomUUID();
 writeFileSync(join(dir, REQUEST_FILE), JSON.stringify({ nonce, at: Date.now() }));
 // mod.open toggles: if the uninstall mod is already open, it picks the request up by itself.
 const overlays = (status() as { overlays?: unknown[] } | null)?.overlays ?? [];
-if (!overlays.includes("editor-uninstall")) run("mod.open", { name: "editor-uninstall" });
+if (!overlays.includes(MOD_UNINSTALL)) run("mod.open", { name: MOD_UNINSTALL });
 console.log("Closing editor panes… (answer the dialog in Herdr if it asks about spaces)");
 
 const read = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return null; } };

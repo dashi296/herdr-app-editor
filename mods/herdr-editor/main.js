@@ -35,8 +35,8 @@ import * as fs from "fs/promises";
 import { appHome } from "herdr";
 
 // src/core/names.ts
-var NS = "editor";
-var MOD_EDITOR = "editor";
+var NS = "herdr-editor";
+var MOD_EDITOR = "herdr-editor";
 var SHARED_KEY = NS;
 
 // src/adapters/herdr/slot-io.ts

@@ -151,7 +151,7 @@
                       "id": "files",
                       "type": "block",
                       "content": {
-                        "mod": "editor-files"
+                        "mod": "herdr-editor-files"
                       }
                     },
                     {
@@ -182,6 +182,6 @@
   ],
   "cloned_from": {
     "name": "main",
-    "version": "0.1.15 (identical to herdr-app 5216e6f)"
+    "version": "0.1.16 (identical in 0.1.15 and herdr-app 5216e6f)"
   }
 }

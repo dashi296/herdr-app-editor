@@ -1,6 +1,6 @@
 # Extensions
 
-The editor has three extension points (issue #1 P2). Extensions are plain TypeScript objects compiled into `mods/editor/main.js`; there is no runtime loader. Herdr has no "mods of mods" mechanism.
+The editor has three extension points (issue #1 P2). Extensions are plain TypeScript objects compiled into `mods/herdr-editor/main.js`; there is no runtime loader. Herdr has no "mods of mods" mechanism.
 
 ```ts
 import type { Extension } from "../core/extensions/registry";

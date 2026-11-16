@@ -11,7 +11,7 @@ Requires Herdr Desktop 0.1.16 or later and [Bun](https://bun.sh) 1.3.5 (`mise in
 
 ```sh
 bun install
-bun run install:herdr     # builds, copies mods/ and layouts/editor.json into the app home, switches to the "editor" layout
+bun run install:herdr     # builds, copies mods/ and layouts/herdr-editor.json into the app home, switches to the "herdr-editor" layout
 bun run uninstall:herdr   # closes editor panes, switches back to the previous layout, removes the files
 ```
 

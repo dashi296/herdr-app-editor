@@ -23,7 +23,7 @@ if (taken.length) {
 const force = process.argv.includes("--force");
 if (previous && !previous.hashes && !force) {
   console.error("Stopped: the previous install has no file hashes, so changes to its files cannot be detected.");
-  console.error("Check mods/editor*, layouts/editor.json in the app home, then run again with --force.");
+  console.error(`Check ${targets.join(", ")} in the app home, then run again with --force.`);
   process.exit(1);
 }
 if (previous?.hashes && !force) {

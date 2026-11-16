@@ -4,8 +4,11 @@ import * as fs from "fs/promises";
 import { appHome } from "herdr";
 
 // src/core/names.ts
-var NS = "editor";
-var MOD_EDITOR = "editor";
+var NS = "herdr-editor";
+var MOD_EDITOR = "herdr-editor";
+var MOD_FILES = "herdr-editor-files";
+var MOD_UNINSTALL = "herdr-editor-uninstall";
+var LAYOUT_NAME = "herdr-editor";
 var SHARED_KEY = NS;
 
 // src/adapters/herdr/slot-io.ts
@@ -242,11 +245,13 @@ var REQUEST_FILE = "uninstall-request.json";
 var RESULT_BASE = "uninstall-result";
 
 // src/ui/uninstall-view.ts
+var MANUAL_NEXT = `Next: switch back to your layout (ctrl-shift-l), then delete mods/${MOD_EDITOR}, mods/${MOD_FILES}, mods/${MOD_UNINSTALL} and layouts/${LAYOUT_NAME}.json in the Herdr app home. Unsaved drafts stay in data/${MOD_EDITOR}/drafts.`;
 var editorPanes = () => panes().filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
 
 class UninstallView extends View {
   phase = { kind: "idle", text: "Run scripts/uninstall.ts to remove the editor mods." };
   nonce = "";
+  manual = false;
   deps;
   init(_props, cx) {
     if (!props()?.overlay)
@@ -260,8 +265,12 @@ class UninstallView extends View {
         } catch {
           request = null;
         }
-        if (request?.nonce)
+        if (request?.nonce && !this.manual)
           break;
+        if (this.phase.kind === "idle") {
+          this.phase = { kind: "manual" };
+          cx2.notify();
+        }
         await cx2.sleep(1000);
       }
       this.nonce = request.nonce;
@@ -290,7 +299,22 @@ class UninstallView extends View {
     await cx.sleep(1000);
     const remaining = editorPanes();
     setShared(SHARED_KEY, null);
+    if (this.manual) {
+      this.phase = { kind: "done", text: remaining.length ? `${remaining.length} editor pane(s) could not be closed (on a machine that is not connected?). Close them first.` : `All editor panes are closed. ${MANUAL_NEXT}` };
+      cx.notify();
+      return;
+    }
     await this.finish(remaining.length ? "incomplete" : "complete", steps, remaining, cx);
+  }
+  startManual(cx) {
+    this.manual = true;
+    const steps = planClose(panes(), spaces(), MOD_EDITOR);
+    if (steps.some((s) => s.kind === "space")) {
+      this.phase = { kind: "confirm", steps };
+      cx.notify();
+      return;
+    }
+    cx.spawn(async (cx2) => this.execute(steps, cx2));
   }
   async finish(status, closed, remaining, cx) {
     const result = { nonce: this.nonce, status, closed, remaining, finishedAt: Date.now() };
@@ -309,14 +333,28 @@ class UninstallView extends View {
     const t = theme();
     const root = v_flex().id("uninstall").size_full().p(16).gap(10).bg(t.popover).text_color(t.foreground).text_size(13);
     const p = this.phase;
+    const btn = (id, label, fn) => h_flex().id(id).h(28).px(12).items_center().rounded(6).border_1().border_color(t.border).cursor_pointer().on_click((_e, cx) => fn(cx)).child(label);
+    const closeSelf = () => closeOverlay(String(props().overlay));
+    if (p.kind === "manual") {
+      const n = editorPanes().length;
+      return root.child(div().font_semibold().child("Remove the editor")).child(div().child(`${n} editor pane(s) are open. Close them before deleting the mod folders, or Herdr shows them as broken panes. Unsaved edits stay as drafts.`)).child(h_flex().gap(8).justify_end().child(btn("close", "Not now", () => closeSelf())).child(btn("manual-ok", "Close all editor panes", (cx) => this.startManual(cx))));
+    }
     if (p.kind === "confirm") {
       const names = p.steps.filter((s) => s.kind === "space").map((s) => spaces().find((x) => x.id === s.space)?.name ?? "?");
-      const btn = (id, label, fn) => h_flex().id(id).h(28).px(12).items_center().rounded(6).border_1().border_color(t.border).cursor_pointer().on_click((_e, cx) => fn(cx)).child(label);
       return root.child(div().font_semibold().child("Remove the editor")).child(div().child(`These spaces only contain editor panes and will be closed: ${names.join(", ")}`)).child(h_flex().gap(8).justify_end().child(btn("cancel", "Cancel uninstall", (cx) => {
+        if (this.manual) {
+          this.phase = { kind: "manual" };
+          this.manual = false;
+          cx.notify();
+          return;
+        }
         cx.spawn(async (cx2) => this.finish("cancelled", [], editorPanes(), cx2));
       })).child(btn("ok", "Close them and continue", (cx) => {
         cx.spawn(async (cx2) => this.execute(p.steps, cx2));
       })));
+    }
+    if (p.kind === "done" && this.manual) {
+      return root.child(div().font_semibold().child("Remove the editor")).child(div().child(p.text)).child(h_flex().justify_end().child(btn("done", "Close", () => closeSelf())));
     }
     const text = p.kind === "running" ? "Closing editor panes…" : p.text;
     return root.child(div().font_semibold().child("Remove the editor")).child(div().child(text));
