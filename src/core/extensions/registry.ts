@@ -54,8 +54,9 @@ export function createRegistry(extensions: Extension[]): Registry {
         let r: SaveResult;
         try { r = await ext.beforeSave({ ...file, text }); }
         catch (e) { return { ok: false, reason: `${ext.name} failed: ${String(e)}` }; }
-        if (!r) continue;
-        if ("cancel" in r) return { ok: false, reason: `${ext.name}: ${r.cancel}` };
+        if (r === undefined || r === null) continue;
+        if (typeof r !== "object") return { ok: false, reason: `${ext.name} returned invalid text` };
+        if ("cancel" in r) return { ok: false, reason: `${ext.name}: ${String(r.cancel)}` };
         if (typeof r.text !== "string") return { ok: false, reason: `${ext.name} returned invalid text` };
         text = r.text;
       }

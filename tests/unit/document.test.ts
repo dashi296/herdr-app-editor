@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  acknowledgeExternal, beginPoll, beginSave, edit, isDirty, open, pollResult, reloadFrom, saveFailed, saveSucceeded,
+  applyFormatted, acknowledgeExternal, beginPoll, beginSave, edit, isDirty, open, pollResult, reloadFrom, saveFailed, saveSucceeded,
 } from "../../src/core/document/document";
 
 const doc = (text = "a\n") => open({ path: "/p/a.ts", machine: null, text });
@@ -16,6 +16,21 @@ describe("generations never repeat across documents (review B1)", () => {
     let b = open({ path: "/p/b.ts", machine: null, text: "b\n", after: a.generation });
     b = beginSave(edit(b, "y\n")).state;
     expect(saveSucceeded(b, request.generation)).toBe(b);
+  });
+});
+
+describe("applyFormatted (beforeSave output is saved as returned)", () => {
+  test("a hook that converts CRLF to LF is saved as LF", () => {
+    const d = applyFormatted(edit(doc("a\r\nb\r\n"), "a\r\nb\r\nc\r\n"), "a\nb\nc\n");
+    expect(d.eol).toBe("lf");
+    expect(beginSave(d).request.text).toBe("a\nb\nc\n");
+  });
+  test("the same line endings keep working as before", () => {
+    const d = applyFormatted(doc("a\r\n"), "a\r\nb\r\n");
+    expect(beginSave(d).request.text).toBe("a\r\nb\r\n");
+  });
+  test("text without line breaks keeps the file's line ending", () => {
+    expect(applyFormatted(doc("a\r\n"), "ab").eol).toBe("crlf");
   });
 });
 

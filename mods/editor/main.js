@@ -213,10 +213,12 @@ function createRegistry(extensions) {
         } catch (e) {
           return { ok: false, reason: `${ext.name} failed: ${String(e)}` };
         }
-        if (!r)
+        if (r === undefined || r === null)
           continue;
+        if (typeof r !== "object")
+          return { ok: false, reason: `${ext.name} returned invalid text` };
         if ("cancel" in r)
-          return { ok: false, reason: `${ext.name}: ${r.cancel}` };
+          return { ok: false, reason: `${ext.name}: ${String(r.cancel)}` };
         if (typeof r.text !== "string")
           return { ok: false, reason: `${ext.name} returned invalid text` };
         text = r.text;
@@ -479,6 +481,11 @@ function acknowledgeExternal(d) {
     return d;
   const { external, ...rest } = d;
   return { ...rest, status: isDirty(d) ? "dirty" : "clean", acknowledged: external };
+}
+function applyFormatted(d, text) {
+  const eol = detectEol(text);
+  const next = edit(d, text);
+  return eol === "none" || eol === next.eol ? next : settle({ ...next, eol });
 }
 
 // src/core/language/language.ts
@@ -1041,7 +1048,10 @@ class EditorView extends View {
     if (hooked.text !== prepareForSave(target.text, target.eol)) {
       const sel = this.code?.selected_range?.();
       this.code?.set_value(hooked.text);
-      this.doc = edit(target, hooked.text);
+      this.doc = applyFormatted(target, hooked.text);
+      const f = this.doc;
+      if (isDirty(f))
+        this.writer?.update({ machine: f.machine, path: f.path, ownerKey: this.key, baselineHash: fnv1a32(f.baseline), text: f.text, savedAt: Date.now() }, timerFrom(cx));
       if (sel)
         this.code?.set_selected_range?.({ start: Math.min(sel.start, hooked.text.length), end: Math.min(sel.end, hooked.text.length) });
     }

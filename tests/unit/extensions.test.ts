@@ -34,6 +34,10 @@ describe("beforeSave", () => {
     const bad: Extension = { name: "fmt", beforeSave: () => { throw new Error("parse error"); } };
     expect(await createRegistry([bad]).beforeSave(save)).toEqual({ ok: false, reason: "fmt failed: Error: parse error" });
   });
+  test("a primitive result cancels the save instead of throwing", async () => {
+    const bad = { name: "prim", beforeSave: () => "oops" } as unknown as Extension;
+    expect(await createRegistry([bad]).beforeSave(save)).toEqual({ ok: false, reason: "prim returned invalid text" });
+  });
   test("a result that is not text cancels the save", async () => {
     const bad = { name: "odd", beforeSave: () => ({ text: 42 }) } as unknown as Extension;
     expect(await createRegistry([bad]).beforeSave(save)).toEqual({ ok: false, reason: "odd returned invalid text" });

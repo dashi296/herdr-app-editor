@@ -5,7 +5,7 @@ import { Editor, EditorState, h_flex, v_flex } from "gpui-base";
 import * as herdr from "herdr";
 import { closeOverlay, focused, nextCommand, openOverlay, panes, props, run, settings, shared, setShared, spaces, theme, window } from "herdr";
 import {
-  acknowledgeExternal, beginPoll, beginSave, edit, isDirty, open, pollResult, reloadFrom, saveFailed, saveSucceeded,
+  acknowledgeExternal, applyFormatted, beginPoll, beginSave, edit, isDirty, open, pollResult, reloadFrom, saveFailed, saveSucceeded,
   type Doc, type Reread, type SaveRequest,
 } from "../core/document/document";
 import { draftBase, draftDir, paneBase } from "../core/draft/paths";
@@ -278,8 +278,11 @@ export abstract class EditorView extends View {
     if (hooked.text !== prepareForSave(target.text, target.eol)) {
       // An extension rewrote the text (e.g. a formatter): show what will be saved.
       const sel = (this.code as { selected_range?: () => { start: number; end: number } } | null)?.selected_range?.();
+      // set_value fires no "change" event and clears undo, so record the draft here (review).
       this.code?.set_value(hooked.text);
-      this.doc = edit(target, hooked.text);
+      this.doc = applyFormatted(target, hooked.text);
+      const f = this.doc;
+      if (isDirty(f)) this.writer?.update({ machine: f.machine, path: f.path, ownerKey: this.key, baselineHash: fnv1a32(f.baseline), text: f.text, savedAt: Date.now() }, timerFrom(cx));
       if (sel) (this.code as { set_selected_range?: (r: { start: number; end: number }) => void } | null)?.set_selected_range?.({ start: Math.min(sel.start, hooked.text.length), end: Math.min(sel.end, hooked.text.length) });
     }
     const { state, request } = beginSave(this.doc!);
