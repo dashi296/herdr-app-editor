@@ -150,7 +150,14 @@ export abstract class EditorView extends View {
     const seq = ++this.openSeq;
     const stale = () => seq !== this.openSeq;
     // Leaving a dirty document only happens after "Don't save": its draft goes too.
-    if (this.doc && isDirty(this.doc)) { this.writer?.discard(); await this.writer?.flush(); await this.dropDraft(); }
+    const leaving = this.doc;
+    if (leaving && isDirty(leaving)) {
+      this.writer?.discard();
+      try { await this.writer?.flush(); } catch { /* the draft is being discarded anyway */ }
+      if (this.doc !== leaving) return; // edited after choosing: keep editing, keep the draft
+      await this.dropDraft();
+      if (this.doc !== leaving) return;
+    }
     if (stale()) return;
     this.screen = { kind: "loading" };
     cx.notify();
@@ -250,10 +257,14 @@ export abstract class EditorView extends View {
       return await this.saveFailedAfter(request, e, cx);
     }
     // The file is saved. Draft cleanup failing must not turn that into a save failure (review).
-    if (this.doc && !isDirty(this.doc)) {
+    const saved = this.doc;
+    if (saved && !isDirty(saved)) {
       this.writer?.discard();
       try { await this.writer?.flush(); } catch (e) { this.draftError = String(e); }
+      // Edited while waiting: that edit's draft stays, and "save, then open" must not continue (review).
+      if (this.doc !== saved) { cx.notify(); return false; }
       await this.dropDraft();
+      if (this.doc !== saved) { cx.notify(); return false; }
     }
     cx.notify();
     return true;

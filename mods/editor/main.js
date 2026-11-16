@@ -669,10 +669,17 @@ class EditorView extends View {
   async openFile(path, on, cx) {
     const seq = ++this.openSeq;
     const stale = () => seq !== this.openSeq;
-    if (this.doc && isDirty(this.doc)) {
+    const leaving = this.doc;
+    if (leaving && isDirty(leaving)) {
       this.writer?.discard();
-      await this.writer?.flush();
+      try {
+        await this.writer?.flush();
+      } catch {}
+      if (this.doc !== leaving)
+        return;
       await this.dropDraft();
+      if (this.doc !== leaving)
+        return;
     }
     if (stale())
       return;
@@ -793,14 +800,23 @@ class EditorView extends View {
     } catch (e) {
       return await this.saveFailedAfter(request, e, cx);
     }
-    if (this.doc && !isDirty(this.doc)) {
+    const saved = this.doc;
+    if (saved && !isDirty(saved)) {
       this.writer?.discard();
       try {
         await this.writer?.flush();
       } catch (e) {
         this.draftError = String(e);
       }
+      if (this.doc !== saved) {
+        cx.notify();
+        return false;
+      }
       await this.dropDraft();
+      if (this.doc !== saved) {
+        cx.notify();
+        return false;
+      }
     }
     cx.notify();
     return true;
