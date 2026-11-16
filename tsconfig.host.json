@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [],
+    "paths": { "herdr": ["./types/herdr.d.ts"] }
+  },
+  "include": ["src", "types/gpui-kit.d.ts"]
+}

@@ -1,0 +1,4 @@
+node_modules/
+spikes/**/dist/
+mods/*/gpui-kit.d.ts
+mods/*/jsconfig.json
