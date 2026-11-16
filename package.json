@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test tests/unit",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.host.json",
+    "test": "bun test tests",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.host.json && tsc --noEmit -p tsconfig.test-ui.json",
     "lint": "oxlint --deny-warnings",
     "lint:deps": "depcruise src --config .dependency-cruiser.cjs",
     "fmt": "oxfmt",
