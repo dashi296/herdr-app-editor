@@ -60,27 +60,72 @@ const element = (): unknown =>
     apply: () => element(),
   });
 
+export interface FakePane {
+  pane: string;
+  tab: string;
+  mod?: string;
+  cwd?: string;
+  zoomed?: boolean;
+}
+export interface FakeSpace {
+  id: string;
+  active: boolean;
+  folder?: string;
+  machine?: string | null;
+  tabs: { id: string; active: boolean }[];
+}
+export interface ExecResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+/** A pending folder watch: a promise with cancel(), as herdr's watchFolder returns. */
+export type FakeWatch = Promise<void> & { cancel(): void; cancelled: boolean };
+
 export const host = {
   props: {} as Record<string, unknown>,
   shared: new Map<string, unknown>(),
-  commands: [] as string[],
-  run: [] as string[],
+  /** Every run() call: the command and its arguments. */
+  run: [] as { command: string; args?: unknown }[],
+  /** Called by run(); may change panes (a split) or throw. */
+  onRun: null as ((command: string, args: unknown) => void) | null,
   overlays: [] as unknown[],
   closed: [] as string[],
+  panes: [] as FakePane[],
+  spaces: [] as FakeSpace[],
+  focused: null as { pane: string | null; cwd?: string; terminal?: string } | null,
+  exec: async (_cmd: string, _args: string[]): Promise<ExecResult> => ({ code: 1, stdout: "", stderr: "" }),
+  watches: [] as FakeWatch[],
 };
 
 export function reset() {
   host.props = {};
   host.shared.clear();
-  host.commands = [];
   host.run = [];
+  host.onRun = null;
   host.overlays = [];
   host.closed = [];
+  host.panes = [];
+  host.spaces = [];
+  host.focused = null;
+  host.exec = async () => ({ code: 1, stdout: "", stderr: "" });
+  host.watches = [];
   FakeEditorState.created = [];
 }
 
+function fakeWatch(): FakeWatch {
+  const w = new Promise<void>(() => {}) as FakeWatch;
+  w.cancelled = false;
+  w.cancel = () => {
+    w.cancelled = true;
+  };
+  host.watches.push(w);
+  return w;
+}
+
 export function install() {
-  mock.module("gpui-kit", () => ({ View: class {}, div: element }));
+  mock.module("gpui-kit", () => ({ View: class {}, div: element, svg: element }));
   mock.module("gpui-base", () => ({
     Editor: { new: element },
     EditorState: FakeEditorState,
@@ -93,18 +138,27 @@ export function install() {
     nextCommand: () => new Promise<string>(() => {}),
     shared: (k: string) => host.shared.get(k),
     setShared: (k: string, v: unknown) => host.shared.set(k, v),
-    run: (c: string) => host.run.push(c),
+    run: (command: string, args?: unknown) => {
+      host.run.push(args === undefined ? { command } : { command, args });
+      host.onRun?.(command, args);
+    },
     openOverlay: (o: unknown) => {
       host.overlays.push(o);
       return `overlay-${host.overlays.length}`;
     },
     closeOverlay: (id: string) => host.closed.push(id),
-    focused: () => null,
-    panes: () => [],
-    spaces: () => [],
+    focused: () => host.focused,
+    panes: () => host.panes,
+    spaces: () => host.spaces,
     settings: () => ({ dark: true }),
     theme: () => ({}),
     window: () => ({ active: true, platform: "macos" }),
+    exec: (cmd: string, args: string[]) => host.exec(cmd, args),
+    watchFolder: fakeWatch,
+    // Used by src/adapters; not exercised by the tests yet.
+    appHome: () => "/fake-home",
+    readTextFile: async () => null,
+    writeTextFile: async () => {},
   }));
 }
 
@@ -114,6 +168,7 @@ export interface FakeCx {
   spawn(fn: (cx: FakeCx) => Promise<unknown>): Promise<unknown>;
   timer: { every(ms: number, fn: unknown): void; after(ms: number, fn: () => void): { cancel(): void } };
   stop_propagation(): void;
+  sleep(ms: number): Promise<void>;
 }
 
 export function makeCx(): FakeCx {
@@ -137,6 +192,7 @@ export function makeCx(): FakeCx {
       },
     },
     stop_propagation() {},
+    sleep: () => new Promise((r) => setTimeout(r, 0)),
   };
   return cx;
 }

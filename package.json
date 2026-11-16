@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "bun test tests",
+    "test:coverage": "bun test tests --coverage",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.host.json && tsc --noEmit -p tsconfig.test-ui.json",
     "lint": "oxlint --deny-warnings",
     "lint:deps": "depcruise src --config .dependency-cruiser.cjs",

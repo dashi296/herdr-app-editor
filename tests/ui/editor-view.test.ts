@@ -467,7 +467,9 @@ describe("close", () => {
     v.init(undefined, cx);
     expect(() => v.render(cx)).not.toThrow();
     await v.close(cx);
-    expect(host.run).toEqual([`${MOD_EDITOR}.reply:${JSON.stringify({ to: "k1", req: "r1", choice: "cancel" })}`]);
+    expect(host.run.map((r) => r.command)).toEqual([
+      `${MOD_EDITOR}.reply:${JSON.stringify({ to: "k1", req: "r1", choice: "cancel" })}`,
+    ]);
   });
 
   test("closing the editor writes the pending draft", async () => {
