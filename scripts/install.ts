@@ -1,8 +1,9 @@
 // Installs the editor into the running Herdr's app home (plan §4 Step 5).
-//   bun run scripts/build.ts && bun run scripts/install.ts [--no-switch]
+//   bun run scripts/build.ts && bun run scripts/install.ts [--no-switch] [--force]
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LAYOUT, MODS, REPO, appHome, dataDir, exists, manifestPath, readManifest, status, switchLayout } from "./lib/herdr";
+import { hashTargets, verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 const st = status();
@@ -19,13 +20,22 @@ if (taken.length) {
   console.error("Rename the mods with src/core/names.ts and rebuild, or remove those files yourself.");
   process.exit(1);
 }
+const force = process.argv.includes("--force");
+if (previous?.hashes && !force) {
+  const changed = verifyOwned(home, previous.files, previous.hashes);
+  if (changed.length) {
+    console.error(`Stopped: installed files were changed since the last install and would be overwritten:\n  ${changed.join("\n  ")}`);
+    console.error("Back them up, then run again with --force.");
+    process.exit(1);
+  }
+}
 
 for (const m of MODS) cpSync(join(REPO, "mods", m), join(home, "mods", m), { recursive: true });
 cpSync(join(REPO, "layouts", `${LAYOUT}.json`), join(home, "layouts", `${LAYOUT}.json`));
 
 const previousLayout = previous?.previousLayout ?? (st.layout && st.layout !== LAYOUT ? st.layout : "main");
 mkdirSync(dataDir(), { recursive: true });
-writeFileSync(manifestPath(), JSON.stringify({ installedAt: new Date().toISOString(), files: targets, previousLayout }, null, 2) + "\n");
+writeFileSync(manifestPath(), JSON.stringify({ installedAt: new Date().toISOString(), files: targets, previousLayout, hashes: hashTargets(home, targets) }, null, 2) + "\n");
 console.log(`Installed into ${home}:\n  ${targets.join("\n  ")}`);
 
 if (!process.argv.includes("--no-switch")) {

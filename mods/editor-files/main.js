@@ -94,7 +94,8 @@ class Files extends View {
     cx.spawn(async (cx2) => {
       try {
         while (this.context === context) {
-          await watchFolder(root);
+          this.watchHandle = watchFolder(root);
+          await this.watchHandle;
           if (this.current(context))
             this.refresh(cx2);
         }
@@ -103,6 +104,13 @@ class Files extends View {
           this.watched = null;
       }
     });
+  }
+  unwatch() {
+    this.watchHandle?.cancel?.();
+    this.watchHandle = null;
+  }
+  async close() {
+    this.unwatch();
   }
   current(context) {
     return this.context === context && key() === context.key;
@@ -131,6 +139,7 @@ class Files extends View {
       this.pending = new Set;
       this.marks = {};
       this.show(null);
+      this.unwatch();
       this.watched = null;
       this.error = null;
       this.limited = false;
@@ -204,6 +213,10 @@ class Files extends View {
     cx.notify();
   }
   openInEditor(path, cx, newPane = false) {
+    if (this.splitting) {
+      this.queuedOpen = { path, newPane };
+      return;
+    }
     const file = `${this.root}/${path}`, on = this.on ?? null;
     const space = spaces().find((s) => s.active);
     const tab = space?.tabs.find((t) => t.active)?.id;
@@ -226,18 +239,27 @@ class Files extends View {
       return;
     const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
     const key2 = `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    this.splitting = true;
     run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key: key2, file, on } });
     cx.spawn(async (cx2) => {
-      for (let i = 0;i < 30; i++) {
-        await cx2.sleep(100);
-        const pane = newPaneAfterSplit(before, panes(), MOD_EDITOR, tab);
-        if (!pane)
-          continue;
-        const now = shared(SHARED_KEY) ?? {};
-        const reg = pruneRegistry(now.registry ?? {}, panes(), MOD_EDITOR);
-        reg[key2] = { pane, tab, lastFocus: Date.now() };
-        setShared(SHARED_KEY, { ...now, registry: reg });
-        return;
+      try {
+        for (let i = 0;i < 30; i++) {
+          await cx2.sleep(100);
+          const pane = newPaneAfterSplit(before, panes(), MOD_EDITOR, tab);
+          if (!pane)
+            continue;
+          const now = shared(SHARED_KEY) ?? {};
+          const reg = pruneRegistry(now.registry ?? {}, panes(), MOD_EDITOR);
+          reg[key2] = { pane, tab, lastFocus: Date.now() };
+          setShared(SHARED_KEY, { ...now, registry: reg });
+          return;
+        }
+      } finally {
+        this.splitting = false;
+        const queued = this.queuedOpen;
+        this.queuedOpen = null;
+        if (queued)
+          this.openInEditor(queued.path, cx2, queued.newPane);
       }
     });
   }

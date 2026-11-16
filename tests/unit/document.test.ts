@@ -5,6 +5,20 @@ import {
 
 const doc = (text = "a\n") => open({ path: "/p/a.ts", machine: null, text });
 
+describe("generations never repeat across documents (review B1)", () => {
+  test("a document opened after another starts above its generation", () => {
+    const a = beginSave(edit(doc(), "x\n")).state;
+    const b = open({ path: "/p/b.ts", machine: null, text: "b\n", after: a.generation });
+    expect(b.generation).toBeGreaterThan(a.generation);
+  });
+  test("a save result of the previous document is ignored by the next one", () => {
+    const { state: a, request } = beginSave(edit(doc(), "x\n"));
+    let b = open({ path: "/p/b.ts", machine: null, text: "b\n", after: a.generation });
+    b = beginSave(edit(b, "y\n")).state;
+    expect(saveSucceeded(b, request.generation)).toBe(b);
+  });
+});
+
 describe("editing", () => {
   test("opens clean", () => {
     const d = doc();

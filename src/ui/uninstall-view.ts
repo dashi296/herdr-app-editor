@@ -26,10 +26,14 @@ export abstract class UninstallView extends View {
     if (!(props() as { overlay?: string } | null)?.overlay) return; // `herdr-app check`
     this.deps = this.makeDeps();
     cx.spawn(async (cx) => {
+      // Wait for a request: the script may find this copy already open (mod.open would only close it).
       let request: { nonce?: string } | null = null;
-      try { request = JSON.parse((await this.deps.io.read(REQUEST_FILE)) ?? "null"); } catch { request = null; }
-      if (!request?.nonce) { cx.notify(); return; }
-      this.nonce = request.nonce;
+      for (;;) {
+        try { request = JSON.parse((await this.deps.io.read(REQUEST_FILE)) ?? "null"); } catch { request = null; }
+        if (request?.nonce) break;
+        await cx.sleep(1000);
+      }
+      this.nonce = request.nonce!;
       const steps = planClose(panes(), spaces(), MOD_EDITOR);
       if (steps.some((s) => s.kind === "space")) { this.phase = { kind: "confirm", steps }; cx.notify(); return; }
       await this.execute(steps, cx);

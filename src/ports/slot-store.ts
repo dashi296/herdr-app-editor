@@ -14,15 +14,21 @@ export interface SlotIO {
   removeDirIfEmpty?(relDir: string): Promise<void>;
 }
 
-export class SlotStore {
-  private queues = new Map<string, Promise<unknown>>();
+/**
+ * One queue per record for the whole module, shared by every SlotStore and so by every mod copy
+ * running this build (module scope is shared by copies: defaults/AGENTS.md). Review B6.
+ */
+const queues = new Map<string, Promise<unknown>>();
 
+export class SlotStore {
   constructor(private io: SlotIO) {}
 
   private serial<T>(base: string, op: () => Promise<T>): Promise<T> {
-    const prev = this.queues.get(base) ?? Promise.resolve();
+    const prev = queues.get(base) ?? Promise.resolve();
     const next = prev.then(op, op);
-    this.queues.set(base, next.catch(() => {}));
+    const tail = next.catch(() => {});
+    queues.set(base, tail);
+    void tail.then(() => { if (queues.get(base) === tail) queues.delete(base); });
     return next;
   }
 

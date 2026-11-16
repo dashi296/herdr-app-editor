@@ -5,6 +5,7 @@
 //   - clicking a file opens it in the editor mod instead of the read-only preview (plan §3)
 //   - icon paths point at this mod's own folder
 //   - while an editor pane has focus, the tree follows a terminal in the same tab
+//   - the pending folder watch is cancelled when the folder changes or the copy closes
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
 import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, shared, setShared } from "herdr";
@@ -63,9 +64,26 @@ export default class Files extends View {
     this.watched = root;
     const context = this.context;
     cx.spawn(async cx => {
-      try { while (this.context === context) { await watchFolder(root); if (this.current(context)) this.refresh(cx); } }
+      try {
+        while (this.context === context) {
+          // herdr-app-editor: keep the handle so a folder change releases the watch (64-folder limit).
+          this.watchHandle = watchFolder(root);
+          await this.watchHandle;
+          if (this.current(context)) this.refresh(cx);
+        }
+      }
       catch { if (this.context === context) this.watched = null; }
     });
+  }
+
+  // herdr-app-editor: release the pending watch of the previous folder.
+  unwatch() {
+    this.watchHandle?.cancel?.();
+    this.watchHandle = null;
+  }
+
+  async close() {
+    this.unwatch();
   }
 
   current(context) {
@@ -87,7 +105,7 @@ export default class Files extends View {
       if (this.context) this.saved.set(this.context.key, { folders: this.folders, file: this.file });
       const saved = this.saved.get(next);
       this.context = { key: next, cwd, on }; this.root = cwd; this.on = on; this.entries = new Map(); this.folders = new Set(saved?.folders);
-      this.pending = new Set(); this.marks = {}; this.show(null); this.watched = null; this.error = null; this.limited = false;
+      this.pending = new Set(); this.marks = {}; this.show(null); this.unwatch(); this.watched = null; this.error = null; this.limited = false; // herdr-app-editor: unwatch
       this.loading = false;
       if (saved?.file) this.show(saved.file, cx);
     }
@@ -141,6 +159,9 @@ export default class Files extends View {
 
   // herdr-app-editor: send the file to the latest focused editor in this tab, or split a new one.
   openInEditor(path, cx, newPane = false) {
+    // While a split is being registered, a second split would make the new pane ambiguous
+    // (newPaneAfterSplit needs exactly one). Remember the latest click and replay it afterwards.
+    if (this.splitting) { this.queuedOpen = { path, newPane }; return; }
     const file = `${this.root}/${path}`, on = this.on ?? null;
     const space = spaces().find(s => s.active);
     const tab = space?.tabs.find(t => t.active)?.id;
@@ -162,18 +183,26 @@ export default class Files extends View {
     if (!base) return;
     const before = all.filter(p => p.mod === MOD_EDITOR).map(p => p.pane);
     const key = `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    this.splitting = true;
     run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key, file, on } });
     // The editor cannot learn its own pane at init (spike S5 result 6): register it from here.
     cx.spawn(async cx => {
-      for (let i = 0; i < 30; i++) {
-        await cx.sleep(100);
-        const pane = newPaneAfterSplit(before, panes(), MOD_EDITOR, tab);
-        if (!pane) continue;
-        const now = shared(SHARED_KEY) ?? {};
-        const reg = pruneRegistry(now.registry ?? {}, panes(), MOD_EDITOR);
-        reg[key] = { pane, tab, lastFocus: Date.now() };
-        setShared(SHARED_KEY, { ...now, registry: reg });
-        return;
+      try {
+        for (let i = 0; i < 30; i++) {
+          await cx.sleep(100);
+          const pane = newPaneAfterSplit(before, panes(), MOD_EDITOR, tab);
+          if (!pane) continue;
+          const now = shared(SHARED_KEY) ?? {};
+          const reg = pruneRegistry(now.registry ?? {}, panes(), MOD_EDITOR);
+          reg[key] = { pane, tab, lastFocus: Date.now() };
+          setShared(SHARED_KEY, { ...now, registry: reg });
+          return;
+        }
+      } finally {
+        this.splitting = false;
+        const queued = this.queuedOpen;
+        this.queuedOpen = null;
+        if (queued) this.openInEditor(queued.path, cx, queued.newPane);
       }
     });
   }

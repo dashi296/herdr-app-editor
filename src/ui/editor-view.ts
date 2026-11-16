@@ -74,7 +74,11 @@ export abstract class EditorView extends View {
   private screen: Screen = { kind: "loading" };
   private doc: Doc | null = null;
   private code: EditorState | null = null;
-  private readonlyReason: "remote" | "not-writable" | null = null;
+  private readonlyReason: "remote" | "not-writable" | "unknown" | null = null;
+  /** Highest document generation this view has used; the next document starts above it (review B1). */
+  private lastGeneration = 0;
+  /** Bumped by every openFile; an older open stops at its next await (review B1). */
+  private openSeq = 0;
   private lossy = false;
   private highlightOff = false;
   /** The user turned highlighting back on for this file (spike S8). */
@@ -140,25 +144,32 @@ export abstract class EditorView extends View {
   // ---------- opening ----------
 
   private async openFile(path: string, on: string | null, cx: AsyncContext): Promise<void> {
+    const seq = ++this.openSeq;
+    const stale = () => seq !== this.openSeq;
     // Leaving a dirty document only happens after "Don't save": its draft goes too.
     if (this.doc && isDirty(this.doc)) { this.writer?.discard(); await this.writer?.flush(); await this.dropDraft(); }
+    if (stale()) return;
     this.screen = { kind: "loading" };
     cx.notify();
     let text: string | null;
     try { text = await this.deps.files.read(path, on); }
-    catch (e) { this.showMessage(`Cannot open ${path}: ${String(e)} (only UTF-8 text up to 1 MiB can be edited)`); return; }
+    catch (e) { if (!stale()) this.showMessage(`Cannot open ${path}: ${String(e)} (only UTF-8 text up to 1 MiB can be edited)`); return; }
+    if (stale()) return;
     if (text === null) { this.showMessage(`${path} does not exist.`); return; }
     const cls = classifyText(text, { remote: on !== null });
     if (cls.kind === "binary") { this.showMessage(`${path} looks like a binary file.`); return; }
     const writable = on === null ? await this.deps.files.canWrite(path, on) : false;
-    this.readonlyReason = on !== null ? "remote" : writable === false ? "not-writable" : null;
+    if (stale()) return;
+    // Saving needs a confirmed write permission: writeTextFile replaces read-only files (R17, review B4).
+    this.readonlyReason = on !== null ? "remote" : writable === true ? null : writable === false ? "not-writable" : "unknown";
     this.lossy = cls.kind === "text" && cls.lossy === true;
     this.forceHighlight = false;
-    this.setDoc(open({ path, machine: on, text }));
+    this.setDoc(open({ path, machine: on, text, after: this.lastGeneration }));
     this.writer = new DraftWriter<Draft>({ save: (d) => this.deps.store.save(draftBase(d.machine, d.path, d.ownerKey), d) }, { now: () => Date.now() },
       { debounceMs: 250, maxWaitMs: 1000, onError: (e) => { this.draftError = String(e); } });
     this.deps.store.save(paneBase(this.key), { file: path, on }).catch(() => {});
     await this.findDraft(path, on, text);
+    if (stale()) return;
     this.screen = { kind: "ready" };
   }
 
@@ -172,6 +183,7 @@ export abstract class EditorView extends View {
   private setDoc(doc: Doc) {
     this.code?.release();
     this.doc = doc;
+    this.lastGeneration = Math.max(this.lastGeneration, doc.generation);
     const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight });
     this.highlightOff = hl.off;
     this.code = EditorState.new({
@@ -179,6 +191,8 @@ export abstract class EditorView extends View {
       font_family: String(settings().font_family ?? ""), font_size: 13, syntax: syntaxColors(),
     });
     this.code.on("change", (_e, cx) => this.onChange(cx));
+    // The editor itself took the keyboard: this is now the latest focused editor (review S2).
+    this.code.on("focus", () => this.register());
   }
 
   private async findDraft(path: string, on: string | null, disk: string) {
@@ -202,19 +216,26 @@ export abstract class EditorView extends View {
     const d = this.doc;
     if (isDirty(d)) {
       this.writer?.update({ machine: d.machine, path: d.path, ownerKey: this.key, baselineHash: fnv1a32(d.baseline), text: d.text, savedAt: Date.now() }, timerFrom(cx));
+    } else {
+      // Back to the saved content (e.g. undo): the draft is no longer an unsaved edit (review S1).
+      this.writer?.discard();
+      void this.dropDraft();
     }
     cx.notify();
   }
 
   private async save(cx: Context | AsyncContext): Promise<boolean> {
     if (!this.doc || this.doc.status === "saving" || this.readonlyReason) return false;
-    const writable = await this.deps.files.canWrite(this.doc.path, this.doc.machine);
-    if (writable === false) { this.readonlyReason = "not-writable"; cx.notify(); return false; }
+    const target = this.doc;
+    const writable = await this.deps.files.canWrite(target.path, target.machine);
+    if (this.doc !== target) return false; // edited or switched while checking: the user saves again
+    if (writable !== true) { this.readonlyReason = writable === false ? "not-writable" : "unknown"; cx.notify(); return false; }
     const { state, request } = beginSave(this.doc);
     this.doc = state;
     cx.notify();
     try {
       await this.deps.files.write(request.path, request.text, request.expected);
+      if (!this.doc || this.doc.generation !== request.generation || this.doc.path !== request.path) return true; // another document now
       this.doc = saveSucceeded(this.doc, request.generation);
       if (!isDirty(this.doc)) { this.writer?.discard(); await this.writer?.flush(); await this.dropDraft(); }
       cx.notify();
@@ -225,6 +246,7 @@ export abstract class EditorView extends View {
         const now = await this.deps.files.read(request.path, request.machine);
         reread = now === null ? { kind: "missing" } : { kind: "text", text: now };
       } catch (re) { reread = { kind: "unreadable", error: String(re) }; }
+      if (!this.doc) return false;
       this.doc = saveFailed(this.doc, request.generation, reread, String(e));
       cx.notify();
       return false;
@@ -338,7 +360,8 @@ export abstract class EditorView extends View {
     }
     else if (a === "reload") {
       const disk = await this.deps.files.read(d.path, d.machine).catch(() => null);
-      if (disk !== null) { this.setDoc(reloadFrom(d, disk)); await this.dropDraft(); }
+      // Edits made while reading win: reload only if nothing changed meanwhile (review B2).
+      if (disk !== null && this.doc === d) { this.writer?.discard(); await this.dropDraft(); if (this.doc === d) this.setDoc(reloadFrom(d, disk)); }
     } else if (a === "restore" && this.draftOffer) {
       this.code?.set_value(this.draftOffer.text);
       this.doc = edit(d, this.draftOffer.text);
@@ -375,7 +398,9 @@ export abstract class EditorView extends View {
       doc: this.doc, readonly: this.readonlyReason, lossy: this.lossy, draftError: this.draftError, highlightOff: this.highlightOff,
       draftOffer: this.draftOffer && { savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(), conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline) },
     });
-    const header = h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
+    const header = h_flex().id("editor-header").h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
+      // A click outside the text area gives the keyboard to the pane, so cmd-s / ctrl-s still arrives (review S2).
+      .on_mouse_down("left", () => this.handle?.focus())
       .child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : ""))
       .child(div().font_semibold().child(model.title))
       .child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path))

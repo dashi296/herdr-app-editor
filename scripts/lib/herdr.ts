@@ -18,7 +18,13 @@ export function appHome(): string {
 export const dataDir = () => join(appHome(), "data", NS);
 export const manifestPath = () => join(dataDir(), "install.json");
 
-export interface Manifest { installedAt: string; files: string[]; previousLayout: string }
+export interface Manifest {
+  installedAt: string;
+  files: string[];
+  previousLayout: string;
+  /** Relative path → sha256 of each installed file (absent in manifests written before review B5). */
+  hashes?: Record<string, string>;
+}
 
 export function readManifest(): Manifest | null {
   try { return JSON.parse(readFileSync(manifestPath(), "utf8")); } catch { return null; }

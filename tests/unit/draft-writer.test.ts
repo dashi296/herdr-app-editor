@@ -97,3 +97,30 @@ describe("DraftWriter", () => {
     expect(saved).toEqual([]);
   });
 });
+
+describe("DraftWriter failure keeps the snapshot (review B3)", () => {
+  test("a failed snapshot is retried by flush without a new edit", async () => {
+    const time = new FakeTime();
+    let fail = true;
+    const saved: unknown[] = [];
+    const writer = new DraftWriter<string>({ save: async (v) => { if (fail) throw new Error("full"); saved.push(v); } }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    writer.update("a", time);
+    await time.advance(250);
+    expect(saved).toEqual([]);
+    fail = false;
+    await writer.flush();
+    expect(saved).toEqual(["a"]);
+  });
+  test("a newer snapshot wins over the failed one", async () => {
+    const time = new FakeTime();
+    let fail = true;
+    const saved: unknown[] = [];
+    const writer = new DraftWriter<string>({ save: async (v) => { if (fail) throw new Error("full"); saved.push(v); } }, time, { debounceMs: 250, maxWaitMs: 1000 });
+    writer.update("a", time);
+    await time.advance(250);
+    fail = false;
+    writer.update("b", time);
+    await writer.flush();
+    expect(saved).toEqual(["b"]);
+  });
+});

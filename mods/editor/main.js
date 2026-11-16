@@ -16,9 +16,12 @@ class HerdrFileStore {
   async canWrite(path, machine) {
     if (machine !== null)
       return false;
-    if (window()?.platform === "windows")
-      return null;
     try {
+      if (window()?.platform === "windows") {
+        const literal = "'" + path.replace(/['\u2018\u2019\u201a\u201b]/g, "$&$&") + "'";
+        const r2 = await exec("powershell", ["-NoProfile", "-Command", `if ((Get-Item -LiteralPath ${literal} -ErrorAction Stop).IsReadOnly) { exit 1 } else { exit 0 }`], { timeout: 1e4 });
+        return r2.code === 0 ? true : r2.code === 1 ? false : null;
+      }
       const r = await exec("test", ["-w", path], { timeout: 5000 });
       return r.code === 0;
     } catch {
@@ -176,16 +179,22 @@ function slotFiles(base) {
 }
 
 // src/ports/slot-store.ts
+var queues = new Map;
+
 class SlotStore {
   io;
-  queues = new Map;
   constructor(io) {
     this.io = io;
   }
   serial(base, op) {
-    const prev = this.queues.get(base) ?? Promise.resolve();
+    const prev = queues.get(base) ?? Promise.resolve();
     const next = prev.then(op, op);
-    this.queues.set(base, next.catch(() => {}));
+    const tail = next.catch(() => {});
+    queues.set(base, tail);
+    tail.then(() => {
+      if (queues.get(base) === tail)
+        queues.delete(base);
+    });
     return next;
   }
   async both(base) {
@@ -276,7 +285,7 @@ function classifyText(text, where) {
 
 // src/core/document/document.ts
 function open(f) {
-  return { path: f.path, machine: f.machine, eol: detectEol(f.text), baseline: f.text, text: f.text, revision: 0, generation: 1, status: "clean" };
+  return { path: f.path, machine: f.machine, eol: detectEol(f.text), baseline: f.text, text: f.text, revision: 0, generation: (f.after ?? 0) + 1, status: "clean" };
 }
 function isDirty(d) {
   return prepareForSave(d.text, d.eol) !== d.baseline;
@@ -446,7 +455,8 @@ function interacted(s) {
 // src/core/view-model/editor.ts
 var READONLY_TEXT = {
   remote: "Read-only: files on other machines cannot be saved.",
-  "not-writable": "Read-only: you do not have permission to write this file."
+  "not-writable": "Read-only: you do not have permission to write this file.",
+  unknown: "Read-only: write permission could not be checked, so saving is disabled."
 };
 function editorModel(i) {
   const d = i.doc;
@@ -525,6 +535,10 @@ class DraftWriter {
         try {
           await this.sink.save(value);
         } catch (e) {
+          if (!this.pending) {
+            this.pending = { value };
+            this.firstPendingAt ??= this.clock.now();
+          }
           this.opts.onError?.(e);
           break;
         }
@@ -575,6 +589,8 @@ class EditorView extends View {
   doc = null;
   code = null;
   readonlyReason = null;
+  lastGeneration = 0;
+  openSeq = 0;
   lossy = false;
   highlightOff = false;
   forceHighlight = false;
@@ -637,20 +653,27 @@ class EditorView extends View {
     await this.writer?.flush();
   }
   async openFile(path, on, cx) {
+    const seq = ++this.openSeq;
+    const stale = () => seq !== this.openSeq;
     if (this.doc && isDirty(this.doc)) {
       this.writer?.discard();
       await this.writer?.flush();
       await this.dropDraft();
     }
+    if (stale())
+      return;
     this.screen = { kind: "loading" };
     cx.notify();
     let text;
     try {
       text = await this.deps.files.read(path, on);
     } catch (e) {
-      this.showMessage(`Cannot open ${path}: ${String(e)} (only UTF-8 text up to 1 MiB can be edited)`);
+      if (!stale())
+        this.showMessage(`Cannot open ${path}: ${String(e)} (only UTF-8 text up to 1 MiB can be edited)`);
       return;
     }
+    if (stale())
+      return;
     if (text === null) {
       this.showMessage(`${path} does not exist.`);
       return;
@@ -661,15 +684,19 @@ class EditorView extends View {
       return;
     }
     const writable = on === null ? await this.deps.files.canWrite(path, on) : false;
-    this.readonlyReason = on !== null ? "remote" : writable === false ? "not-writable" : null;
+    if (stale())
+      return;
+    this.readonlyReason = on !== null ? "remote" : writable === true ? null : writable === false ? "not-writable" : "unknown";
     this.lossy = cls.kind === "text" && cls.lossy === true;
     this.forceHighlight = false;
-    this.setDoc(open({ path, machine: on, text }));
+    this.setDoc(open({ path, machine: on, text, after: this.lastGeneration }));
     this.writer = new DraftWriter({ save: (d) => this.deps.store.save(draftBase(d.machine, d.path, d.ownerKey), d) }, { now: () => Date.now() }, { debounceMs: 250, maxWaitMs: 1000, onError: (e) => {
       this.draftError = String(e);
     } });
     this.deps.store.save(paneBase(this.key), { file: path, on }).catch(() => {});
     await this.findDraft(path, on, text);
+    if (stale())
+      return;
     this.screen = { kind: "ready" };
   }
   showMessage(text) {
@@ -681,6 +708,7 @@ class EditorView extends View {
   setDoc(doc) {
     this.code?.release();
     this.doc = doc;
+    this.lastGeneration = Math.max(this.lastGeneration, doc.generation);
     const hl = highlightFor(doc.path, doc.text.length, { force: this.forceHighlight });
     this.highlightOff = hl.off;
     this.code = EditorState.new({
@@ -692,6 +720,7 @@ class EditorView extends View {
       syntax: syntaxColors()
     });
     this.code.on("change", (_e, cx) => this.onChange(cx));
+    this.code.on("focus", () => this.register());
   }
   async findDraft(path, on, disk) {
     this.draftOffer = null;
@@ -717,15 +746,21 @@ class EditorView extends View {
     const d = this.doc;
     if (isDirty(d)) {
       this.writer?.update({ machine: d.machine, path: d.path, ownerKey: this.key, baselineHash: fnv1a32(d.baseline), text: d.text, savedAt: Date.now() }, timerFrom(cx));
+    } else {
+      this.writer?.discard();
+      this.dropDraft();
     }
     cx.notify();
   }
   async save(cx) {
     if (!this.doc || this.doc.status === "saving" || this.readonlyReason)
       return false;
-    const writable = await this.deps.files.canWrite(this.doc.path, this.doc.machine);
-    if (writable === false) {
-      this.readonlyReason = "not-writable";
+    const target = this.doc;
+    const writable = await this.deps.files.canWrite(target.path, target.machine);
+    if (this.doc !== target)
+      return false;
+    if (writable !== true) {
+      this.readonlyReason = writable === false ? "not-writable" : "unknown";
       cx.notify();
       return false;
     }
@@ -734,6 +769,8 @@ class EditorView extends View {
     cx.notify();
     try {
       await this.deps.files.write(request.path, request.text, request.expected);
+      if (!this.doc || this.doc.generation !== request.generation || this.doc.path !== request.path)
+        return true;
       this.doc = saveSucceeded(this.doc, request.generation);
       if (!isDirty(this.doc)) {
         this.writer?.discard();
@@ -750,6 +787,8 @@ class EditorView extends View {
       } catch (re) {
         reread = { kind: "unreadable", error: String(re) };
       }
+      if (!this.doc)
+        return false;
       this.doc = saveFailed(this.doc, request.generation, reread, String(e));
       cx.notify();
       return false;
@@ -882,9 +921,11 @@ class EditorView extends View {
         this.code?.set_selected_range?.(sel);
     } else if (a === "reload") {
       const disk = await this.deps.files.read(d.path, d.machine).catch(() => null);
-      if (disk !== null) {
-        this.setDoc(reloadFrom(d, disk));
+      if (disk !== null && this.doc === d) {
+        this.writer?.discard();
         await this.dropDraft();
+        if (this.doc === d)
+          this.setDoc(reloadFrom(d, disk));
       }
     } else if (a === "restore" && this.draftOffer) {
       this.code?.set_value(this.draftOffer.text);
@@ -929,7 +970,7 @@ class EditorView extends View {
       highlightOff: this.highlightOff,
       draftOffer: this.draftOffer && { savedAt: new Date(this.draftOffer.savedAt).toLocaleTimeString(), conflict: this.draftOffer.baselineHash !== fnv1a32(this.doc.baseline) }
     });
-    const header = h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : "")).child(div().font_semibold().child(model.title)).child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path)).child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : ""));
+    const header = h_flex().id("editor-header").h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).on_mouse_down("left", () => this.handle?.focus()).child(div().w(10).text_color(t.accent).child(model.dirty ? "●" : "")).child(div().font_semibold().child(model.title)).child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.doc.path)).child(div().text_size(11).text_color(t.dim).child(this.doc.status === "saving" ? "Saving…" : ""));
     const banners = model.banners.map((b, i) => h_flex().id(`banner-${i}`).flex_none().px(12).py(6).gap(8).items_center().border_b(1).border_color(t.border).bg(b.kind === "error" ? t.blocked : b.kind === "warn" ? t.raised : t.surface).child(div().flex_1().min_w(0).child(b.text)).children(b.actions.map((a) => this.button(`act-${i}-${a}`, ACTION_LABEL[a], t, (cx) => {
       cx.spawn(async (cx2) => {
         await this.act(a, cx2);

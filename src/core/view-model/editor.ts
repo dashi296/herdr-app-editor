@@ -8,7 +8,7 @@ export interface EditorModel { title: string; dirty: boolean; banners: Banner[] 
 export interface EditorInput {
   doc: Doc;
   /** Why saving is not possible, if it is not. */
-  readonly: "remote" | "not-writable" | null;
+  readonly: "remote" | "not-writable" | "unknown" | null;
   /** Remote text containing U+FFFD (R4). */
   lossy: boolean;
   draftOffer: { savedAt: string; conflict: boolean } | null;
@@ -20,6 +20,7 @@ export interface EditorInput {
 const READONLY_TEXT = {
   remote: "Read-only: files on other machines cannot be saved.",
   "not-writable": "Read-only: you do not have permission to write this file.",
+  unknown: "Read-only: write permission could not be checked, so saving is disabled.",
 } as const;
 
 export function editorModel(i: EditorInput): EditorModel {

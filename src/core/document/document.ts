@@ -30,8 +30,12 @@ export interface Doc {
   readonly failure?: Failure;
 }
 
-export function open(f: { path: string; machine: string | null; text: string }): Doc {
-  return { path: f.path, machine: f.machine, eol: detectEol(f.text), baseline: f.text, text: f.text, revision: 0, generation: 1, status: "clean" };
+/**
+ * `after`: the generation of the document this one replaces in the same view. Generations then never
+ * repeat within a view, so an I/O result for the previous document is always recognized as stale.
+ */
+export function open(f: { path: string; machine: string | null; text: string; after?: number }): Doc {
+  return { path: f.path, machine: f.machine, eol: detectEol(f.text), baseline: f.text, text: f.text, revision: 0, generation: (f.after ?? 0) + 1, status: "clean" };
 }
 
 /** Whether saving would change the file. */

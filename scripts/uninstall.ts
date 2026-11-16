@@ -1,5 +1,5 @@
 // Removes the editor and returns to the layout used before installing (plan §4 Step 5, acceptance 5).
-//   bun run scripts/uninstall.ts
+//   bun run scripts/uninstall.ts [--force]
 import { readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { NS } from "../src/core/names";
@@ -7,6 +7,7 @@ import { slotFiles } from "../src/core/draft/paths";
 import { pickCurrent } from "../src/core/store/slots";
 import { REQUEST_FILE, RESULT_BASE, type UninstallResult } from "../src/core/uninstall/protocol";
 import { LAYOUT, MODS, appHome, dataDir, exists, readManifest, run, status, switchLayout } from "./lib/herdr";
+import { verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 if (!status()) {
@@ -15,6 +16,15 @@ if (!status()) {
 }
 const manifest = readManifest();
 const previousLayout = manifest?.previousLayout ?? "main";
+// Delete only what this script installed, unchanged (review B5). Checked before anything is closed.
+if (manifest?.hashes && !process.argv.includes("--force")) {
+  const changed = verifyOwned(home, manifest.files, manifest.hashes);
+  if (changed.length) {
+    console.error(`Stopped: installed files were changed since installing and would be deleted:\n  ${changed.join("\n  ")}`);
+    console.error("Back them up, then run again with --force. Nothing was closed or removed.");
+    process.exit(1);
+  }
+}
 
 // 1. Ask the uninstall mod to close every editor pane.
 const dir = dataDir();
@@ -24,7 +34,9 @@ rmSync(result.a, { force: true });
 rmSync(result.b, { force: true });
 const nonce = crypto.randomUUID();
 writeFileSync(join(dir, REQUEST_FILE), JSON.stringify({ nonce, at: Date.now() }));
-run("mod.open", { name: "editor-uninstall" });
+// mod.open toggles: if the uninstall mod is already open, it picks the request up by itself.
+const overlays = (status() as { overlays?: unknown[] } | null)?.overlays ?? [];
+if (!overlays.includes("editor-uninstall")) run("mod.open", { name: "editor-uninstall" });
 console.log("Closing editor panes… (answer the dialog in Herdr if it asks about spaces)");
 
 const read = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return null; } };

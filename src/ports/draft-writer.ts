@@ -58,7 +58,12 @@ export class DraftWriter<T> {
         this.pending = null;
         this.firstPendingAt = null;
         try { await this.sink.save(value); }
-        catch (e) { this.opts.onError?.(e); break; }
+        catch (e) {
+          // Keep the snapshot so flush() or the next change retries it, unless a newer one arrived.
+          if (!this.pending) { this.pending = { value }; this.firstPendingAt ??= this.clock.now(); }
+          this.opts.onError?.(e);
+          break;
+        }
       }
     })().finally(() => { this.writing = null; });
     return this.writing;

@@ -101,3 +101,20 @@ describe("SlotStore", () => {
     expect((await s.owners("drafts/h")).sort()).toEqual(["k1", "k2"]);
   });
 });
+
+describe("SlotStore queues are shared between instances (review B6)", () => {
+  test("two stores writing the same record never interleave", async () => {
+    let active = 0, maxActive = 0;
+    const files = new Map<string, string>();
+    const io: SlotIO = {
+      read: async (r) => files.get(r) ?? null,
+      write: async (r, t) => { active++; maxActive = Math.max(maxActive, active); await new Promise((x) => setTimeout(x, 5)); files.set(r, t); active--; },
+      unlink: async (r) => { files.delete(r); },
+      list: async () => [],
+    };
+    const a = new SlotStore(io), b = new SlotStore(io);
+    await Promise.all([a.save("panes/k", { v: 1 }), b.save("panes/k", { v: 2 }), a.save("panes/k", { v: 3 })]);
+    expect(maxActive).toBe(1);
+    expect(await a.load("panes/k")).toEqual({ v: 3 });
+  });
+});

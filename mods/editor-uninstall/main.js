@@ -133,16 +133,22 @@ function slotFiles(base) {
 }
 
 // src/ports/slot-store.ts
+var queues = new Map;
+
 class SlotStore {
   io;
-  queues = new Map;
   constructor(io) {
     this.io = io;
   }
   serial(base, op) {
-    const prev = this.queues.get(base) ?? Promise.resolve();
+    const prev = queues.get(base) ?? Promise.resolve();
     const next = prev.then(op, op);
-    this.queues.set(base, next.catch(() => {}));
+    const tail = next.catch(() => {});
+    queues.set(base, tail);
+    tail.then(() => {
+      if (queues.get(base) === tail)
+        queues.delete(base);
+    });
     return next;
   }
   async both(base) {
@@ -248,14 +254,15 @@ class UninstallView extends View {
     this.deps = this.makeDeps();
     cx.spawn(async (cx2) => {
       let request = null;
-      try {
-        request = JSON.parse(await this.deps.io.read(REQUEST_FILE) ?? "null");
-      } catch {
-        request = null;
-      }
-      if (!request?.nonce) {
-        cx2.notify();
-        return;
+      for (;; ) {
+        try {
+          request = JSON.parse(await this.deps.io.read(REQUEST_FILE) ?? "null");
+        } catch {
+          request = null;
+        }
+        if (request?.nonce)
+          break;
+        await cx2.sleep(1000);
       }
       this.nonce = request.nonce;
       const steps = planClose(panes(), spaces(), MOD_EDITOR);
