@@ -14,7 +14,7 @@ const mods: ModSpec[] = [
   { name: MOD_UNINSTALL, entry: "src/entries/editor-uninstall.ts", manifest: { place: "none", overlay: { width: 480, height: 220 } } },
   {
     name: MOD_FILES, entry: "src/entries/editor-files.js", manifest: { place: "none" },
-    assets: ["chevron-down.svg", "chevron-right.svg", "file.svg", "folder.svg", "LICENSE"].map((f) => [`vendor/herdr-files/${f}`, f]),
+    assets: ["chevron-down.svg", "chevron-right.svg", "file.svg", "folder.svg", "LICENSE", "LICENSE-Lucide.txt"].map((f) => [`vendor/herdr-files/${f}`, f]),
   },
 ];
 
