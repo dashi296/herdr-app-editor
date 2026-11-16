@@ -138,6 +138,7 @@ class Files extends View {
     this.watchHandle = null;
   }
   async close() {
+    this.context = null;
     this.unwatch();
   }
   current(context) {

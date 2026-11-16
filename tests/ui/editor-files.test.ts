@@ -62,7 +62,9 @@ describe("folder", () => {
     await settle();
     expect(host.watches).toHaveLength(2);
     await v.close();
-    expect(host.watches[1]!.cancelled).toBe(true);
+    await settle();
+    // The cancelled watch resolves; the watch loop must stop instead of watching again.
+    expect(host.watches.map((w) => w.cancelled)).toEqual([true, true]);
   });
 });
 

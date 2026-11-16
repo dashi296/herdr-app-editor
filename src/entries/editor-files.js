@@ -127,6 +127,9 @@ export default class Files extends View {
   }
 
   async close() {
+    // herdr-app-editor: leave the context first, so the watch loop woken by cancel() stops
+    // instead of refreshing and watching the folder again.
+    this.context = null;
     this.unwatch();
   }
 

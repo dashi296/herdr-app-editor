@@ -81,7 +81,7 @@ export interface ExecResult {
 }
 
 /** A pending folder watch: a promise with cancel(), as herdr's watchFolder returns. */
-export type FakeWatch = Promise<void> & { cancel(): void; cancelled: boolean };
+export type FakeWatch = Promise<string[]> & { cancel(): void; cancelled: boolean };
 
 export const host = {
   props: {} as Record<string, unknown>,
@@ -115,10 +115,15 @@ export function reset() {
 }
 
 function fakeWatch(): FakeWatch {
-  const w = new Promise<void>(() => {}) as FakeWatch;
+  let resolve!: (changes: string[]) => void;
+  const w = new Promise<string[]>((r) => {
+    resolve = r;
+  }) as FakeWatch;
   w.cancelled = false;
+  // Like the host (types/herdr.d.ts FolderWatch.cancel): resolves with [] and releases the watch.
   w.cancel = () => {
     w.cancelled = true;
+    resolve([]);
   };
   host.watches.push(w);
   return w;
