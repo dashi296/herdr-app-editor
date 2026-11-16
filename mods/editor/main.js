@@ -809,10 +809,12 @@ class EditorView extends View {
         this.draftError = String(e);
       }
       if (this.doc !== saved) {
+        if (this.doc?.path !== saved.path || this.doc?.machine !== saved.machine)
+          await this.dropDraft(saved);
         cx.notify();
         return false;
       }
-      await this.dropDraft();
+      await this.dropDraft(saved);
       if (this.doc !== saved) {
         cx.notify();
         return false;
@@ -835,8 +837,7 @@ class EditorView extends View {
     cx.notify();
     return false;
   }
-  async dropDraft() {
-    const d = this.doc;
+  async dropDraft(d = this.doc) {
     if (!d)
       return;
     await this.deps.store.remove(draftBase(d.machine, d.path, this.key)).catch((e) => {
