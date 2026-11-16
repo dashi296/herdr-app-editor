@@ -53,12 +53,25 @@ export class FakeEditorState {
   }
 }
 
-/** Any element builder: every method returns the builder again. */
-const element = (): unknown =>
-  new Proxy(function () {}, {
-    get: () => () => element(),
+/**
+ * Any element builder: every method returns the builder again. `.id(x)` followed by
+ * `.on_click(fn)` records fn in host.clicks[x], so tests can press a rendered button.
+ */
+const element = (): unknown => {
+  let id: string | null = null;
+  const self: unknown = new Proxy(function () {}, {
+    get:
+      (_t, key) =>
+      (...args: unknown[]) => {
+        if (key === "id") id = String(args[0]);
+        else if (key === "on_click" && id !== null) host.clicks.set(id, args[0] as Click);
+        return self;
+      },
     apply: () => element(),
   });
+  return self;
+};
+type Click = (event: unknown, cx: unknown) => void;
 
 export interface FakePane {
   pane: string;
@@ -97,6 +110,10 @@ export const host = {
   focused: null as { pane: string | null; cwd?: string; terminal?: string } | null,
   exec: async (_cmd: string, _args: string[]): Promise<ExecResult> => ({ code: 1, stdout: "", stderr: "" }),
   watches: [] as FakeWatch[],
+  /** Click handlers of the last render, by element id. */
+  clicks: new Map<string, Click>(),
+  appHome: "/fake-home",
+  platform: "macos",
 };
 
 export function reset() {
@@ -111,6 +128,9 @@ export function reset() {
   host.focused = null;
   host.exec = async () => ({ code: 1, stdout: "", stderr: "" });
   host.watches = [];
+  host.clicks.clear();
+  host.appHome = "/fake-home";
+  host.platform = "macos";
   FakeEditorState.created = [];
 }
 
@@ -157,11 +177,11 @@ export function install() {
     spaces: () => host.spaces,
     settings: () => ({ dark: true }),
     theme: () => ({}),
-    window: () => ({ active: true, platform: "macos" }),
+    window: () => ({ active: true, platform: host.platform }),
     exec: (cmd: string, args: string[]) => host.exec(cmd, args),
     watchFolder: fakeWatch,
+    appHome: () => host.appHome,
     // Used by src/adapters; not exercised by the tests yet.
-    appHome: () => "/fake-home",
     readTextFile: async () => null,
     writeTextFile: async () => {},
   }));

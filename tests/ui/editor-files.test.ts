@@ -15,6 +15,9 @@ interface FilesView {
   init(props: unknown, cx: FakeCx): void;
   refresh(cx: FakeCx): void;
   openInEditor(path: string, cx: FakeCx, newPane?: boolean): void;
+  entries: Map<string, { name: string; dir: boolean }[]>;
+  folders: Set<string>;
+  rows(prefix: string, depth: number, out: unknown[], theme: unknown): unknown[];
   close(): Promise<void>;
 }
 
@@ -145,5 +148,53 @@ describe("opening files in the editor", () => {
     const v = start();
     v.openInEditor("a.ts", cx, true);
     expect(commands()).toEqual(["pane.split"]);
+  });
+});
+
+describe("clicking a row", () => {
+  /** Renders the tree rows and records which file openInEditor received. */
+  function rendered() {
+    const v = start();
+    const calls: { path: string; newPane: boolean }[] = [];
+    v.openInEditor = (path, _cx, newPane = false) => calls.push({ path, newPane });
+    v.entries.set("", [
+      { name: "src", dir: true },
+      { name: "a.txt", dir: false },
+    ]);
+    v.rows("", 0, [], {});
+    const click = (id: string, modifiers: Record<string, boolean> = {}) => host.clicks.get(id)!({ modifiers }, cx);
+    return { v, calls, click };
+  }
+
+  test("a file opens in the editor; cmd-click on macOS opens a new editor pane", () => {
+    const { calls, click } = rendered();
+    click("file-a.txt");
+    click("file-a.txt", { platform: true });
+    click("file-a.txt", { control: true });
+    expect(calls).toEqual([
+      { path: "a.txt", newPane: false },
+      { path: "a.txt", newPane: true },
+      { path: "a.txt", newPane: false },
+    ]);
+  });
+
+  test("ctrl-click opens a new editor pane on Linux and Windows", () => {
+    host.platform = "linux";
+    const { calls, click } = rendered();
+    click("file-a.txt", { platform: true });
+    click("file-a.txt", { control: true });
+    expect(calls).toEqual([
+      { path: "a.txt", newPane: false },
+      { path: "a.txt", newPane: true },
+    ]);
+  });
+
+  test("a folder expands and collapses instead of opening", () => {
+    const { v, calls, click } = rendered();
+    click("file-src");
+    expect(v.folders.has("src")).toBe(true);
+    click("file-src");
+    expect(v.folders.has("src")).toBe(false);
+    expect(calls).toEqual([]);
   });
 });
