@@ -166,7 +166,7 @@ function resolveSyntax(theme, herdr) {
     operator: pick("ansi6"),
     punctuation: pick("foreground")
   };
-  return { ...base, ...theme?.syntax ?? {} };
+  return { ...base, ...theme?.syntax };
 }
 function nextTheme(current, names) {
   const i = names.indexOf(current);

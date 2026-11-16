@@ -42,7 +42,7 @@ export function resolveSyntax(theme: EditorTheme | null, herdr: Record<string, s
     function: pick("ansi4"), type: pick("ansi3"), number: pick("ansi1"), constant: pick("ansi6"),
     boolean: pick("ansi1"), variable: pick("foreground"), operator: pick("ansi6"), punctuation: pick("foreground"),
   };
-  return { ...base, ...(theme?.syntax ?? {}) };
+  return { ...base, ...theme?.syntax };
 }
 
 /** The theme after `current` in `names`; unknown names go back to the first (Herdr). */

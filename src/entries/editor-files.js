@@ -138,6 +138,8 @@ export default class Files extends View {
 
   toggle(path, cx) {
     if (this.folders.has(path)) {
+      // upstream code: iterate over a copy while deleting from the Set
+      // oxlint-disable-next-line unicorn/no-useless-spread
       for (const folder of [...this.folders]) if (folder === path || folder.startsWith(path + "/")) {
         this.folders.delete(folder);
         this.entries.delete(folder);
