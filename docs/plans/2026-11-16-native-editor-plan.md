@@ -5,6 +5,7 @@
 - 改訂1: Codexレビューを反映
 - 改訂2: Codex・Claudeの再レビューを反映
 - 改訂3: Codex・Claudeの3回目のレビューを反映。G3を決定
+- 改訂5（2026-11-16）: スパイク S1〜S6 の結果を反映。R17（読み取り専用ファイルの上書き）と、CRLF のファイルの保存前変換（S2b）を追加。§3 の ack とタイムアウトによるフォールバックをやめ、registry は Files が split の前後の差分で登録する方式にした。対象バージョンを決定
 - 改訂4（2026-11-16）: Codex・Claudeの4回目のレビューを反映。主な変更は以下。
   - §3: ack の期限付き処理で editor の重複を防ぐ。依頼を送る順序の根拠を訂正。ダイアログの返答経路を `close()` に一本化
   - §5: 共有の索引ファイルをやめ、ディレクトリ構造で引く方式にした
@@ -33,6 +34,11 @@ G1〜G3 はいずれも決定済み。
 - 次のAPIを Herdr 上流（herdrdev/herdr-app）に提案する（未実施）。
   - 原子的なCAS保存
   - shared キーの削除（`deleteShared`）
+
+### 対象バージョン（決定 2026-11-16）
+
+- **次のリリース（0.1.16 以降）を対象にする。** 計画が前提にしている `EditorState.focus()` / `selected_range()`、`checking()`、`watchFolder` の `cancel()` は master にしかなく、最新リリースの 0.1.15 にはない（`docs/spikes/2026-11-16-step0-s1.md`）。
+- スパイクは 0.1.15 で行い、master 固有の API に依存する項目は、次のリリースの後にもう一度確認する。
 
 ### 実装前の必須ゲート
 
@@ -73,10 +79,10 @@ herdr-app-editor/
 ├─ src/                       # TypeScript（開発用。配布されない）
 │  ├─ core/                   # 純粋ロジック。外部モジュールも他の内部層もimportしない
 │  │  ├─ document/            # 状態遷移、revision、I/O世代
-│  │  ├─ text/                # NUL/U+FFFD判定, EOL/BOM/末尾改行の検出と復元
+│  │  ├─ text/                # NUL/U+FFFD判定、改行コードの判定、CRLF のみのファイルの保存前変換
 │  │  ├─ language/            # 拡張子 → syntax名
 │  │  ├─ theme/               # エディタテーマJSON検証 → syntax色マップ
-│  │  ├─ routing/             # §3 のメッセージ型・期限・ack・ダイアログの状態機械
+│  │  ├─ routing/             # §3 のメッセージ型・期限・split差分による登録・ダイアログの状態機械
 │  │  ├─ store/               # A/Bスロット・tombstone・FNV-1aハッシュ（下書きとpane状態で共用）
 │  │  ├─ view-model/          # UIの表示状態（dirty表示・帯・ダイアログ・ボタン可否）
 │  │  └─ extensions/          # onFileOpen / beforeSave 等のフック型とregistry
@@ -124,7 +130,7 @@ entries → adapters → ports → core
 
 - `bun build` を使う。
   - Bun 本体のバージョンは `mise.toml` で固定する（CIは `setup-bun` に同じバージョンを渡し、`bun --version` を検査する）。
-  - `target` と minify の方針を `package.json` の build script で固定する。
+  - **`--target node --format esm`** に固定する。`--target browser` では `--external fs/promises` を指定しても空のスタブに置き換えられ、しかも `herdr-app check` が通ってしまう（`docs/spikes/2026-11-16-step0-s1.md` S1-2）。minify の方針も build script で固定する。
 - ESM で出力し、`herdr`・`gpui-kit`・`gpui-base`・`fs/promises` を external にする。
 - 出力後に次を検査する。
   - external の specifier が書き換わっていないこと
@@ -136,6 +142,7 @@ entries → adapters → ports → core
   - editor には `"focusable": true` を付ける（`defaults/AGENTS.md:882-885`）。
   - `editor-uninstall` には overlay の spec を付ける（`src/window.rs:4982-4985`）。
 - エディタテーマは `main.js` に埋め込む。ホームの `themes/<name>.json` は別スキーマ（`defaults/AGENTS.md:333-338`）。
+- check 中の fs 呼び出しは、app home の外にある mod フォルダでは**同期的に例外を投げる**（S1-3）。fs の呼び出しは、すべて同期の例外と reject の両方を捕まえる。
 - `checking()` の扱い（`defaults/AGENTS.md:928-931`）:
   - check 中も、render に必要な状態（EditorState など）は初期化する。
   - 止めるのは副作用だけ（ポーリング・watch・書き込み・registry の更新・shared への書き込み）。
@@ -150,8 +157,8 @@ entries → adapters → ports → core
 | R2 | **標準Filesに拡張ポイントがない** | `defaults/mods/files/main.js` の `show()` | Filesをforkした `editor-files` と、cloneしたlayout。`vendor/` の原本との差分で追従する。`cloned_from` を記録する |
 | R3 | **ローカルの読み書きは1 MiBまで・UTF-8のみ** | 読み `src/mod_files.rs:16-21`、書き `:26-29` | G2のエラー画面。NULの判定は読み込み成功後に行う。編集の結果、保存する本文が1 MiBを超えた場合は保存失敗として扱い、編集内容と下書きを保持する |
 | R4 | **リモートの読み込みは非UTF-8をU+FFFDに置換し、失敗時は null を返す**。書き込み・watchはローカルのみ | `src/mods.rs:936-949`、`defaults/AGENTS.md:1114-1116` | リモートの編集は初期リリースの対象外。読み取り専用で表示し、U+FFFDを含む場合は「元のバイトが失われている可能性」を帯で示す。null は「読めない」と表示する。ポーリングは10秒以上の間隔 |
-| R5 | `PaneInfo` は props を返さない。`run()` は常に null を返し、配送結果も返らない。mod pane への `pane.focus` はキーボードをウィンドウに戻す | `defaults/herdr.d.ts:91, 207-223`、`src/mods.rs:1103-1117`、`src/window.rs:1595-1599, 1754-1755` | §3（期限付きの ack）。editor はフォーカスを得たいときに自分で `state.focus()` を呼ぶ |
-| R6 | `<mod>.<command>` は**表示中のコピーにしか届かず**、そのすべてに届く（overlay のコピーも含む）。届かないと、コマンド名入りのエラートーストがユーザーに表示される（mod の `run` は `person=true` で処理されるため） | `src/mods.rs:745-757`、`src/window.rs:1285-1288, 2896-2908` | §3。宛先を確認し、role で処理を分ける。ack が届かない場合のトーストは RECIPE に記載する |
+| R5 | `PaneInfo` は props を返さない。`run()` は常に null を返し、配送結果も返らない。mod pane への `pane.focus` はキーボードをウィンドウに戻す | `defaults/herdr.d.ts:91, 207-223`、`src/mods.rs:1103-1117`、`src/window.rs:1595-1599, 1754-1755` | §3（Files が registry に登録し、focus → open を送る）。editor はフォーカスを得たいときに自分で `state.focus()` を呼ぶ（0.1.15 にはない。§0 対象バージョン） |
+| R6 | `<mod>.<command>` は**表示中のコピーにしか届かず**、そのすべてに届く（overlay のコピーも含む）。届かないと、コマンド名入りのエラートーストがユーザーに表示される（mod の `run` は `person=true` で処理されるため） | `src/mods.rs:745-757`、`src/window.rs:1285-1288, 2896-2908` | §3。宛先を確認し、role で処理を分ける。診断用の ack が届かない場合のトーストは RECIPE に記載する |
 | R7 | `watchFolder` の制約: Linuxでは ignored を監視しない、保留は最大64フォルダ、1回で完了するので再armが要る、cancel すると `[]` で resolve する | `defaults/herdr.d.ts:460-479` | ポーリングを必須の経路にする（§4 Step 2） |
 | R8 | `EditorState` には language・syntax・scroll・undo を取得・設定する API がない。State を render 内で生成してはいけない | `typings.rs:3203-3238` | テーマや言語を切り替えるときは、render 外で作り直し、value と selection だけを移して、古いものは `release()` する。undo とスクロール位置は失われることを仕様とし、切り替え時に表示する |
 | R9 | `herdr-app check` は最初の描画しか検査しない | `defaults/AGENTS.md:54-57` | §6 の E2E |
@@ -162,13 +169,14 @@ entries → adapters → ports → core
 | R14 | 非同期の読み書きの結果が、ファイル切替や編集・保存の後に届く | `defaults/herdr.d.ts:27-32`、`src/mod_files.rs:78` | §4 Step 2「I/O世代」 |
 | R15 | ターミナルのレイアウトブロックにフォーカスがある状態で、pane を指定せずに split するとエラーになる | `src/window.rs:2944-2950`、`defaults/herdr.d.ts:259-261` | `pane.split` には常に `pane` を明示する |
 | R16 | `pane.focus` は対象 pane の space と tab を選び、zoom 中なら zoom を対象 pane に移す | `src/model.rs:128-133, 507-512` | zoom 中に Files から開くと、zoom が editor に移り、zoom していた terminal が隠れる。RECIPE に記載する |
+| R17 | **読み取り専用のファイル（444）でも、ディレクトリが書き込み可能なら `writeTextFile` が上書きしてしまう**（rename で置き換わる） | S4（`docs/spikes/2026-11-16-s2-s4.md`） | mod API には stat がない。ファイルを開くときと保存の前に、ローカルでは `exec("test", ["-w", path])` で書き込み権限を確かめる。書けなければ読み取り専用で表示し、保存も止める。Windows の手段は Windows で確認する |
 
 ### 保存時の競合防止
 
 `writeTextFile(path, text, expected)` は、`expected` とディスク上の内容が一致しない書き込みを拒否する（`src/mod_files.rs:27-73`）。ただし次の制約がある。
 
 - 厳密な CAS ではない（rename 直前の隙。`:69-72`）。新規作成はアトミックではない（`:39-45`）。→ G3。
-- ソース上、明示的に移されるのはパーミッションだけ（`:62`）。所有者・ACL・xattr・hard link は、S4 の実機結果が出るまで未保証として扱う。
+- 保たれるのはパーミッションだけ（`:62`）。**macOS の実機（S4）では、hard link は切れ、独自の xattr は消えた。** symlink は保たれ、リンク先が更新される。所有者と ACL は未確認。RECIPE に記載する。
 - 一時ファイルは対象と同じディレクトリに作られる（`:47-60`）。
 
 ### 保存失敗の扱い
@@ -199,7 +207,7 @@ entries → adapters → ports → core
 
 - メッセージは非永続の `<mod>.<command>` で送る。
 - shared は「どこに editor があるか」の registry だけに使う。
-- 配送結果は返ってこないので、**期限付きの ack** で確かめる。
+- 配送結果は返ってこない。`panes()` で存在を確かめた pane に focus してから送ることで、配送を確定させる（S5 で確認済み）。
 
 ### 配送経路（確認済み）
 
@@ -212,10 +220,9 @@ entries → adapters → ports → core
 ### 識別子と registry
 
 - Files は `pane.split` のときに一意な `key` を props に入れる（`{key, file, on}`）。
-- editor は次のタイミングで `focused().pane` から自分の pane ID を確定し、registry `{key, pane, tab, lastFocus}` に書く。
-  - split 直後の `init`（新しい pane にフォーカスが移るため。`src/model.rs:345-346`）
-  - nextCommand で `"focus"` を受け取ったとき
-  - クリックしたとき（`src/window.rs:4446-4456`）
+- **registry `{key, pane, tab, lastFocus}` には Files が書く。** split の前後で `panes()` を比べ、新しい `mod === "editor"` の pane を特定する（S5 結果7）。
+  - editor の `init` 時点の `focused().pane` は split 元の pane を指すので、使わない（S5 結果6）。
+- editor は、nextCommand で `"focus"` を受け取ったときと、クリックされたときに、補助として `lastFocus` を更新する。このとき、`focused().pane` が `mod === "editor"` の pane であることを確かめる。
 - 書くのはフォーカスが変わったときだけ。`close()` では registry から削除しない。参照する側が `panes()` で pane の存在を確かめ、存在しないエントリを削除する。
 
 ### 開く依頼
@@ -227,15 +234,12 @@ entries → adapters → ports → core
 2. 見つかった場合は、同じコールバックの中で続けて送る。
    1. `run("pane.focus", {pane})`
    2. `run("editor.open:" + JSON.stringify({to: key, req, file, on, sentAt: Date.now()}))`
-3. editor は、`to` が自分で、かつ **`Date.now() - sentAt` が 300ms 以内のときだけ**、依頼を受理する。
-   - 受理したら、状態機械に登録したあとで `run("editor-files.ack:" + JSON.stringify({req}))` を返す。
-   - 期限を過ぎた依頼は、処理せず ack も返さない。
-4. Files は **1000ms 以内に ack が来なければ**、新しい pane を開く（手順5）。
-   - 期限（300ms）と待ち時間（1000ms）の間に余裕を取っているので、既存の editor が遅れて依頼を処理し、同時に新しい pane も開かれる、という重複は起きない。
-   - 時計は同じプロセスのものを使うので、ずれない。
-   - 具体的な値は S5 の実測で決める。
-5. 見つからない、または ack が来なかった場合: `pane.split {pane: 現在のpane, direction: "right", mod: "editor", props: {key: 新規, file, on}}`。
-6. `req` は一意にする。editor は、処理済みの `req` を無視する。
+   - `panes()` に存在する pane へ focus してから送れば、FIFO により open の配送時点で editor は表示中になっている（S5 結果1）。そのため、**ack を待ったフォールバックはしない。**
+   - ack を待つ方式は、`pane.focus` の zoom の移動で送り主が非表示になると ack が届かず、editor が重複するので採らない（S5 結果5）。
+3. editor は、`to` が自分で、かつ `Date.now() - sentAt` が 2000ms 以内のときだけ、依頼を受理する。期限は、hot reload やコピーの再起動の後に古い依頼を処理しないための安全策。
+   - 受理したら `run("editor-files.ack:…")` を返す。これは診断ログ用で、Files の動作には使わない。
+4. 見つからない場合: `pane.split {pane: 現在のpane, direction: "right", mod: "editor", props: {key: 新規, file, on}}` の後、前後の `panes()` を比べて registry に登録する。
+5. `req` は一意にする。editor は、処理済みの `req` を無視する。
 
 ### editor 側の処理
 
@@ -260,13 +264,13 @@ entries → adapters → ports → core
 ### 制約
 
 - shared と下書きはクライアントごと、pane（と props）はクライアント間で共有される。RECIPE に記載する。
-- ack を返す前に、Files を含む stack の子や layout が切り替わると、ack が届かずにエラートーストが出る（R6）。RECIPE に記載する。
+- 診断用の ack を返す前に、Files を含む stack の子や layout が切り替わる、または zoom の移動で Files が隠れると、ack が届かずにエラートーストが出る（R6、S5 結果5）。RECIPE に記載する。トーストを避けたい場合は ack を省く。
 - ユーザーが keys.json の global に cmd-s を割り当てた場合、そちらが優先される（推定。S3 で確認する）。
 
 このプロトコルは `core/routing` に状態機械として実装し、次のケースを unit test で確認する。
 
 - editor が0／1／複数ある場合、別の tab、zoom の裏にある場合
-- 期限切れの依頼、ack が遅れた場合（重複が起きないこと）、`req` が重複した場合、registry に古いエントリが残っている場合
+- 期限切れの依頼、`req` が重複した場合、registry に古いエントリが残っている場合、split 前後の差分で pane を特定する場合
 - dirty の状態で依頼が来た場合、ダイアログ中に次の依頼が来た場合、返答が2回来た場合、返答が失われた場合の回復
 - 保存に失敗した場合、ダイアログのコピーが `open` を受け取った場合
 
@@ -275,20 +279,21 @@ entries → adapters → ports → core
 ### Step 1: 検証スパイク
 
 - **S1**: バンドルした `main.js` が `herdr-app check` を通り、hot reload されるか
-- **S2**: `EditorState.value()` を経由して CRLF・BOM・末尾改行・タブがそのまま保持されるか。正規化される場合は `core/text` で復元する。改行コードが混在するファイルは読み取り専用にする
+- **S2**: `EditorState.value()` を経由して CRLF・BOM・末尾改行・タブがそのまま保持されるか → **保持される**（混在や単独の CR も同じ）。復元処理と、改行コードが混在するファイルを読み取り専用にする規則は不要。
+  - **S2b**: CRLF のファイルで Enter を押すと **`\n` が挿入される**。CRLF のみだったファイルは、保存の直前に単独の `\n` を `\r\n` に変換する（`core/text`。`docs/spikes/2026-11-16-s2b-esc.md`）
 - **S3**: ルート要素の `on_key_down` で cmd-s / ctrl-s を受け取れるか。keys.json の global に割り当てた場合との優先順位も確かめる
   - cmd-s / ctrl-s には既定のバインドがない（`defaults/keys.json`、`keys.macos.json`）。
   - gpui はキーバインドを `on_key_down` より先に処理する（推定）。
 - **S4**: `writeTextFile` の動作を確認する。
   - 対象: ホーム外のパス、読み取り専用ファイル、ディレクトリに書き込めないケース、削除済みファイル、1 MiB を超える保存
   - 確認内容: エラー原文と、OSごとの metadata の扱い
-- **S5（必須ゲート）**: §3 を実機で確認する。
+- **S5（必須ゲート）**: §3 を実機で確認する。→ **0.1.15 で確認済み**（`docs/spikes/2026-11-16-s5-routing.md`、Esc は `docs/spikes/2026-11-16-s2b-esc.md`）。次のリリースでの `state.focus()` の確認だけが残っている。
   - FIFO による配送順、期限と待ち時間の実測値
-  - 負荷がかかった状態・hot reload 直後で、ack が遅れた場合に editor が重複しないこと
+  - hot reload 直後に古い依頼を処理しないこと
   - zoom、複数の editor、連続クリック、ダイアログ中の依頼
   - `focused().pane` で自分の pane ID を確定できるか
   - `state.focus()` でキーボードが editor に渡るか
-- **S6**: `watchFolder` の即時性と、macOS / Linux / Windows での失敗パターン
+- **S6**: `watchFolder` の即時性と、macOS / Linux / Windows での失敗パターン → **macOS は確認済み**（約160ms、再帰的に通知される。1 MiB の `readTextFile` は約1ms。`docs/spikes/2026-11-16-s6-watch.md`）。Linux / Windows は未確認
 - **S7**: EditorState を作り直したときに selection を移せるか
 - **S8**: 1 MiB と 400 KB のファイルで、入力遅延とハイライトのコスト。しきい値を決める
 
@@ -297,7 +302,7 @@ entries → adapters → ports → core
 - `core/document`: 状態遷移、revision、I/O世代。ユニットテストを先に書く
 - `adapters/herdr`: FileStore・SlotStore・Registry を実装する
 - **保存キー**
-  - ルート要素の `on_key_down` で、macOS は cmd-s、それ以外は ctrl-s を処理する。keys.json は配布しない（`defaults/AGENTS.md:510-512`）。
+  - ルート要素の `on_key_down` で、macOS は cmd-s、それ以外は ctrl-s を処理する。keys.json は配布しない（`defaults/AGENTS.md:510-512`）。Editor にフォーカスがあるときに届くことは S3 で確認済み。Editor の外側をクリックしたときは、`on_mouse_down` でルートの handle にフォーカスを移す。
   - S3 が成立しなかった場合だけ、keys.json の `mod:editor` を使う。その場合は全コピーに届くので、フォーカスがあるコピーだけが保存する。
 - **I/O世代**（R14）
   - 文書の内容を表す `revision`（編集のたびに増える）と、非同期 I/O の `generation` を分けて持つ。
@@ -318,6 +323,7 @@ entries → adapters → ports → core
     - 次のときに必ず `cancel()` する: パスの変更、非表示になったとき、`window().active` が false になったとき、`close()`。保留中の watch が64の上限を占有し続けないようにするため。
     - resolve の後は、watch の世代とパスが現在と一致するときだけ再armする。
     - 失敗したらポーリングだけで続ける。`.herdr-app-write-*` のイベントは無視する。
+    - 通知は親ディレクトリ以下のすべての変更で届く（S6）。返ったパスに自分のファイルが含まれる場合と、ルートが返った場合だけ再読込する。
   - 外部変更を検知した場合、clean なら自動で再読込する。dirty なら `dirtyExternal` にする（§2）。
 - `ui`: view-model の出力を描画する
 - `editor-files` の fork と §3（S5 の後）
@@ -370,7 +376,7 @@ entries → adapters → ports → core
   - 複数クライアントの制約
   - undo とスクロール位置が失われる条件
   - zoom が editor に移ること（R16）
-  - ack が届かない場合のトースト
+  - 診断用の ack が届かない場合のトースト
   - 未接続マシンの pane が残ること
 
 ## 5. 下書きと pane の状態（G1）
@@ -426,7 +432,7 @@ entries → adapters → ports → core
 
 | 層 | 手段 | 対象 |
 |---|---|---|
-| unit | Bun test（ports は fake） | core 全般: routing の状態機械（期限・ack・返答の一意性・回復）、revision と I/O世代、保存失敗の分類、ポーリングと watch の世代、ストア（A/B・tombstone の全クラッシュ順序・同時書き込み）、言語マップ、view-model |
+| unit | Bun test（ports は fake） | core 全般: routing の状態機械（期限・返答の一意性・回復・split 差分による登録）、revision と I/O世代、保存失敗の分類、ポーリングと watch の世代、ストア（A/B・tombstone の全クラッシュ順序・同時書き込み）、言語マップ、view-model |
 | static | `herdr-app check` | 全 Mod（editor は通常の props と dialog の props の両方） |
 | e2e | `$HOME` 配下の隔離した `HERDR_APP_HOME` で実機手順を実行し、`herdr-app shot` で証跡を残す | 下記 |
 
@@ -443,7 +449,7 @@ E2E のケース。macOS では全件を行う。Linux / Windows では最低限
 - 再起動後、hot reload 後、Herdr の更新後に、編集中のファイルと下書きが復元される
 - 入力のたびに、1秒以内に下書きが書き込まれる
 - 1 MiB のファイルで、入力遅延がしきい値以内に収まる
-- Files を含む stack の子を ack の前に切り替える → トーストの内容を確認し、RECIPE の記述と一致すること
+- Files を含む stack の子を切り替える、zoom の裏の editor に向けて開く → editor が重複せず、トーストが出る場合は RECIPE の記述と一致すること
 - tab に editor pane を残したまま uninstall する（space の最後の pane の場合も含む）→ pane と mod フォルダが残らず、shared の名前空間キーが null で editor が状態なしとして扱い、元の layout に戻る
 - Herdr が起動していない状態で uninstall する → 中止される
 

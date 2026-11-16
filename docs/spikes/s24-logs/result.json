@@ -1,0 +1,145 @@
+{
+ "s2": [
+  {
+   "label": "crlf",
+   "in": "\"a\\r\\nb\\r\\n\"",
+   "out": "\"a\\r\\nb\\r\\n\"",
+   "same": true,
+   "setValueSame": true
+  },
+  {
+   "label": "bom",
+   "in": "\"﻿bom\\n\"",
+   "out": "\"﻿bom\\n\"",
+   "same": true,
+   "setValueSame": true
+  },
+  {
+   "label": "no-trailing-newline",
+   "in": "\"no-trailing\"",
+   "out": "\"no-trailing\"",
+   "same": true,
+   "setValueSame": true
+  },
+  {
+   "label": "tabs",
+   "in": "\"\\tx\\t\\n\"",
+   "out": "\"\\tx\\t\\n\"",
+   "same": true,
+   "setValueSame": true
+  },
+  {
+   "label": "mixed",
+   "in": "\"a\\r\\nb\\nc\\rd\"",
+   "out": "\"a\\r\\nb\\nc\\rd\"",
+   "same": true,
+   "setValueSame": true
+  },
+  {
+   "label": "lone-cr",
+   "in": "\"a\\rb\"",
+   "out": "\"a\\rb\"",
+   "same": true,
+   "setValueSame": true
+  },
+  {
+   "label": "empty",
+   "in": "\"\"",
+   "out": "\"\"",
+   "same": true,
+   "setValueSame": true
+  }
+ ],
+ "s4": [
+  {
+   "label": "read crlf.txt",
+   "ok": true,
+   "result": "\"a\\r\\nb\\r\\n\""
+  },
+  {
+   "label": "read bom.txt",
+   "ok": true,
+   "result": "\"﻿bom\\n\""
+  },
+  {
+   "label": "read notrail.txt",
+   "ok": true,
+   "result": "\"no-trailing\""
+  },
+  {
+   "label": "read binary.bin (invalid UTF-8)",
+   "ok": false,
+   "error": "Error: `herdr.readTextFile`: stream did not contain valid UTF-8"
+  },
+  {
+   "label": "read missing file",
+   "ok": true,
+   "result": null
+  },
+  {
+   "label": "write normal (expected matches)",
+   "ok": true,
+   "result": null
+  },
+  {
+   "label": "write crlf round trip",
+   "ok": true,
+   "result": null
+  },
+  {
+   "label": "write stale (expected mismatch)",
+   "ok": false,
+   "error": "Error: `herdr.writeTextFile`: The file changed outside Herdr. Reload before saving; your draft is still here."
+  },
+  {
+   "label": "write readonly file 444",
+   "ok": true,
+   "result": null
+  },
+  {
+   "label": "write file in readonly dir 555",
+   "ok": false,
+   "error": "Error: `herdr.writeTextFile`: Permission denied (os error 13)"
+  },
+  {
+   "label": "write deleted file with expected",
+   "ok": false,
+   "error": "Error: `herdr.writeTextFile`: The file changed outside Herdr. Reload before saving; your draft is still here."
+  },
+  {
+   "label": "write existing with expected=null",
+   "ok": false,
+   "error": "Error: `herdr.writeTextFile`: The file changed outside Herdr. Reload before saving; your draft is still here."
+  },
+  {
+   "label": "write new file with expected=null",
+   "ok": true,
+   "result": null
+  },
+  {
+   "label": "write via symlink",
+   "ok": true,
+   "result": null
+  },
+  {
+   "label": "write hard link",
+   "ok": true,
+   "result": null
+  },
+  {
+   "label": "write > 1 MiB",
+   "ok": false,
+   "error": "Error: `herdr.writeTextFile`: Text file exceeds 1 MiB"
+  },
+  {
+   "label": "write exactly 1 MiB",
+   "ok": true,
+   "result": null
+  },
+  {
+   "label": "write outside home (/tmp)",
+   "ok": true,
+   "result": null
+  }
+ ]
+}
