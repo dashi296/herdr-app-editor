@@ -94,9 +94,12 @@ function editorOnlySpace() {
 
 const request = (nonce = "n1") => io.files.set(REQUEST_FILE, JSON.stringify({ nonce }));
 const result = () => store.load<UninstallResult>(RESULT_BASE);
-const click = (id: string) => {
+/** Renders the current screen and presses one of its buttons, as a person would. */
+const press = (v: Internals, id: string) => {
+  host.clicks.clear();
+  v.render(cx);
   const fn = host.clicks.get(id);
-  if (!fn) throw new Error(`no button "${id}" in the last render`);
+  if (!fn) throw new Error(`no button "${id}" on the current screen`);
   fn(null, cx);
 };
 
@@ -191,8 +194,7 @@ describe("script request", () => {
     await until(v, "confirm");
     expect(host.run).toEqual([]);
 
-    v.render(cx);
-    click("ok");
+    press(v, "ok");
     await until(v, "done");
     expect(host.run).toEqual([{ command: "space.close", args: { id: "s2", confirmed: true } }]);
     expect(await result()).toMatchObject({ status: "complete" });
@@ -206,8 +208,7 @@ describe("script request", () => {
     v.init(undefined, cx);
     await until(v, "confirm");
 
-    v.render(cx);
-    click("cancel");
+    press(v, "cancel");
     await until(v, "done");
     expect(host.run).toEqual([]);
     expect(await result()).toMatchObject({ nonce: "n1", status: "cancelled", closed: [], remaining: ["e9"] });
@@ -238,15 +239,14 @@ describe("opened by hand", () => {
     await until(v, "manual");
     expect(() => v.render(cx)).not.toThrow();
 
-    click("manual-ok");
+    press(v, "manual-ok");
     await until(v, "done");
     expect(host.run.map((r) => r.command)).toEqual(["pane.close", "tab.close"]);
     expect(v.phase.text).toStartWith("All editor panes are closed. Next: switch back to your layout");
     expect(host.shared.get(SHARED_KEY)).toBeNull();
     expect(await result()).toBeNull();
 
-    v.render(cx);
-    click("done");
+    press(v, "done");
     expect(host.closed).toEqual(["ov1"]);
   });
 
@@ -255,8 +255,7 @@ describe("opened by hand", () => {
     const v = makeView();
     v.init(undefined, cx);
     await until(v, "manual");
-    v.render(cx);
-    click("close");
+    press(v, "close");
     expect(host.closed).toEqual(["ov1"]);
     expect(host.run).toEqual([]);
   });
@@ -267,8 +266,7 @@ describe("opened by hand", () => {
     const v = makeView();
     v.init(undefined, cx);
     await until(v, "manual");
-    v.render(cx);
-    click("manual-ok");
+    press(v, "manual-ok");
     await until(v, "done");
     expect(v.phase.text).toBe(
       "1 editor pane(s) could not be closed (on a machine that is not connected?). Close them first.",
@@ -280,13 +278,13 @@ describe("opened by hand", () => {
     const v = makeView();
     v.init(undefined, cx);
     await until(v, "manual");
-    v.render(cx);
-    click("manual-ok");
+    press(v, "manual-ok");
     expect(v.phase.kind).toBe("confirm");
     expect(() => v.render(cx)).not.toThrow();
 
-    click("cancel");
+    press(v, "cancel");
     expect(v.phase.kind).toBe("manual");
+    expect(() => press(v, "ok")).toThrow('no button "ok"');
     expect(v.manual).toBe(false);
     expect(host.run).toEqual([]);
   });
@@ -297,8 +295,7 @@ describe("opened by hand", () => {
     const v = makeView();
     v.init(undefined, cx);
     await until(v, "manual");
-    v.render(cx);
-    click("manual-ok");
+    press(v, "manual-ok");
     request();
     await until(v, "done");
     // Long enough for a second (script) run to finish and write its result, had it started.

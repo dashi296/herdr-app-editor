@@ -55,7 +55,8 @@ export class FakeEditorState {
 
 /**
  * Any element builder: every method returns the builder again. `.id(x)` followed by
- * `.on_click(fn)` records fn in host.clicks[x], so tests can press a rendered button.
+ * `.on_click(fn)` records fn in host.clicks[x], so tests can press a rendered button
+ * (clear host.clicks before the render, or handlers of earlier screens stay).
  */
 const element = (): unknown => {
   let id: string | null = null;
@@ -110,7 +111,7 @@ export const host = {
   focused: null as { pane: string | null; cwd?: string; terminal?: string } | null,
   exec: async (_cmd: string, _args: string[]): Promise<ExecResult> => ({ code: 1, stdout: "", stderr: "" }),
   watches: [] as FakeWatch[],
-  /** Click handlers of the last render, by element id. */
+  /** Click handlers by element id. Builders only add to it: clear it before a render to see one screen's buttons. */
   clicks: new Map<string, Click>(),
   appHome: "/fake-home",
   platform: "macos",

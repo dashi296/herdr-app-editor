@@ -161,6 +161,7 @@ describe("clicking a row", () => {
       { name: "src", dir: true },
       { name: "a.txt", dir: false },
     ]);
+    host.clicks.clear();
     v.rows("", 0, [], {});
     const click = (id: string, modifiers: Record<string, boolean> = {}) => host.clicks.get(id)!({ modifiers }, cx);
     return { v, calls, click };
