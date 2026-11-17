@@ -14,6 +14,8 @@ export interface SlotIO {
   removeDirIfEmpty?(relDir: string): Promise<void>;
 }
 
+export type UpdateDecision<T> = { op: "keep" } | { op: "remove" } | { op: "write"; payload: T };
+
 /**
  * One queue per record for the whole module, shared by every SlotStore and so by every mod copy
  * running this build (module scope is shared by copies: defaults/AGENTS.md). Review B6.
@@ -59,13 +61,33 @@ export class SlotStore {
   remove(base: string): Promise<void> {
     return this.serial(base, async () => {
       const { f, a, b } = await this.both(base);
-      for (const step of planDelete(a, b)) {
-        if (step.op === "write") await this.io.write(f[step.slot], JSON.stringify(step.record));
-        else await this.io.unlink(f[step.slot]);
-      }
-      const dir = base.slice(0, base.lastIndexOf("/"));
-      if (dir) await this.io.removeDirIfEmpty?.(dir);
+      await this.deleteSlots(base, f, a, b);
     });
+  }
+
+  /**
+   * Reads the record, lets `decide` look at it and then writes or removes it, all as one queued
+   * operation: no save or remove of the same record can run in between. Returns the decision.
+   */
+  update<T>(base: string, decide: (current: T | null) => UpdateDecision<T>): Promise<UpdateDecision<T>> {
+    return this.serial(base, async () => {
+      const { f, a, b } = await this.both(base);
+      const decision = decide(pickCurrent<T>(a, b).payload);
+      if (decision.op === "write") {
+        const { target, record } = planWrite(a, b, decision.payload);
+        await this.io.write(f[target], JSON.stringify(record));
+      } else if (decision.op === "remove") await this.deleteSlots(base, f, a, b);
+      return decision;
+    });
+  }
+
+  private async deleteSlots(base: string, f: { a: string; b: string }, a: string | null, b: string | null) {
+    for (const step of planDelete(a, b)) {
+      if (step.op === "write") await this.io.write(f[step.slot], JSON.stringify(step.record));
+      else await this.io.unlink(f[step.slot]);
+    }
+    const dir = base.slice(0, base.lastIndexOf("/"));
+    if (dir) await this.io.removeDirIfEmpty?.(dir);
   }
 
   /** Record names in a folder (each stored as `<name>.a.json` / `<name>.b.json`). */

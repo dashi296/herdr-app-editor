@@ -93,10 +93,11 @@ const POLL_LOCAL_MS = 3000,
 /**
  * Stale pane records are swept once per module load (shared by every copy), a while after start.
  * Every copy waits and the first one to wake sweeps: the host can create a copy and drop it at once
- * (seen on 0.1.16: two inits for one pane), and a dropped copy's task never wakes.
+ * (seen on 0.1.16: two inits for one pane), and a dropped copy's task never wakes. A failed sweep
+ * lets the next copy to wake try again.
  */
 const SWEEP_DELAY_MS = 60_000;
-let swept = false;
+let sweep: "waiting" | "running" | "done" = "waiting";
 
 const isChecking = (): boolean => (herdr as { checking?: () => boolean }).checking?.() ?? false;
 
@@ -236,9 +237,14 @@ export abstract class EditorView extends View {
     // After the delay every live editor has opened its file and so refreshed its own record.
     cx.spawn(async (cx) => {
       await cx.sleep(SWEEP_DELAY_MS);
-      if (swept) return;
-      swept = true;
-      await sweepPaneStates(this.deps.store, this.key, Date.now()).catch(() => {});
+      if (sweep !== "waiting") return;
+      sweep = "running";
+      try {
+        await sweepPaneStates(this.deps.store, this.key, Date.now());
+        sweep = "done";
+      } catch {
+        sweep = "waiting";
+      }
     });
   }
 

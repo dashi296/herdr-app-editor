@@ -403,16 +403,31 @@ class SlotStore {
   remove(base) {
     return this.serial(base, async () => {
       const { f, a, b } = await this.both(base);
-      for (const step of planDelete(a, b)) {
-        if (step.op === "write")
-          await this.io.write(f[step.slot], JSON.stringify(step.record));
-        else
-          await this.io.unlink(f[step.slot]);
-      }
-      const dir = base.slice(0, base.lastIndexOf("/"));
-      if (dir)
-        await this.io.removeDirIfEmpty?.(dir);
+      await this.deleteSlots(base, f, a, b);
     });
+  }
+  update(base, decide) {
+    return this.serial(base, async () => {
+      const { f, a, b } = await this.both(base);
+      const decision = decide(pickCurrent(a, b).payload);
+      if (decision.op === "write") {
+        const { target, record } = planWrite(a, b, decision.payload);
+        await this.io.write(f[target], JSON.stringify(record));
+      } else if (decision.op === "remove")
+        await this.deleteSlots(base, f, a, b);
+      return decision;
+    });
+  }
+  async deleteSlots(base, f, a, b) {
+    for (const step of planDelete(a, b)) {
+      if (step.op === "write")
+        await this.io.write(f[step.slot], JSON.stringify(step.record));
+      else
+        await this.io.unlink(f[step.slot]);
+    }
+    const dir = base.slice(0, base.lastIndexOf("/"));
+    if (dir)
+      await this.io.removeDirIfEmpty?.(dir);
   }
   async owners(relDir) {
     const names = new Set;
@@ -854,35 +869,37 @@ class DraftWriter {
 
 // src/core/pane-state/pane-state.ts
 var PANE_STATE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
-function isStalePaneState(state, now) {
-  if (!state || typeof state.seenAt !== "number")
-    return true;
-  return now - state.seenAt > PANE_STATE_MAX_AGE_MS;
+function sweepDecision(state, now) {
+  if (!state || typeof state !== "object")
+    return { op: "remove" };
+  if (typeof state.seenAt !== "number")
+    return { op: "write", payload: { ...state, seenAt: now } };
+  return now - state.seenAt > PANE_STATE_MAX_AGE_MS ? { op: "remove" } : { op: "keep" };
 }
 
 // src/ports/pane-states.ts
 var PANES_DIR = "panes";
 async function sweepPaneStates(store, selfKey, now) {
-  const removed = [];
+  const removed = [], stamped = [];
   for (const key of await store.owners(PANES_DIR)) {
     if (key === selfKey)
       continue;
     try {
-      const base = paneBase(key);
-      if (!isStalePaneState(await store.load(base), now))
-        continue;
-      await store.remove(base);
-      removed.push(key);
+      const d = await store.update(paneBase(key), (s) => sweepDecision(s, now));
+      if (d.op === "remove")
+        removed.push(key);
+      else if (d.op === "write")
+        stamped.push(key);
     } catch {}
   }
-  return removed;
+  return { removed, stamped };
 }
 
 // src/ui/editor-view.ts
 var POLL_LOCAL_MS = 3000;
 var POLL_REMOTE_MS = 1e4;
 var SWEEP_DELAY_MS = 60000;
-var swept = false;
+var sweep = "waiting";
 var isChecking = () => herdr.checking?.() ?? false;
 function readShared() {
   const v = shared(SHARED_KEY);
@@ -1000,10 +1017,15 @@ class EditorView extends View {
     cx.timer.every(1000, (cx2) => this.maybePoll(cx2));
     cx.spawn(async (cx2) => {
       await cx2.sleep(SWEEP_DELAY_MS);
-      if (swept)
+      if (sweep !== "waiting")
         return;
-      swept = true;
-      await sweepPaneStates(this.deps.store, this.key, Date.now()).catch(() => {});
+      sweep = "running";
+      try {
+        await sweepPaneStates(this.deps.store, this.key, Date.now());
+        sweep = "done";
+      } catch {
+        sweep = "waiting";
+      }
     });
   }
   async close(_cx) {

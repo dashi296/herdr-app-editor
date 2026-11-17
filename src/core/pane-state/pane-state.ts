@@ -12,8 +12,15 @@ export interface PaneState {
 
 export const PANE_STATE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** A record nobody wrote for longer than the limit, one without seenAt, or a missing one. */
-export function isStalePaneState(state: PaneState | null, now: number): boolean {
-  if (!state || typeof state.seenAt !== "number") return true;
-  return now - state.seenAt > PANE_STATE_MAX_AGE_MS;
+export type SweepDecision<T> = { op: "keep" } | { op: "remove" } | { op: "write"; payload: T };
+
+/**
+ * What the sweep does with another pane's record. A record without seenAt is not removed at once:
+ * its pane may be alive but not yet started (a tab not shown since the update) or unable to open
+ * its file, so it gets seenAt = now and the full limit from there.
+ */
+export function sweepDecision(state: PaneState | null, now: number): SweepDecision<PaneState> {
+  if (!state || typeof state !== "object") return { op: "remove" };
+  if (typeof state.seenAt !== "number") return { op: "write", payload: { ...state, seenAt: now } };
+  return now - state.seenAt > PANE_STATE_MAX_AGE_MS ? { op: "remove" } : { op: "keep" };
 }
