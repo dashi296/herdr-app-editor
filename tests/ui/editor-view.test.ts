@@ -142,7 +142,11 @@ describe("init", () => {
     expect(v.doc?.text).toBe("hello\n");
     expect(v.readonlyReason).toBeNull();
     expect(code().opts.readonly).toBe(false);
-    expect(await new SlotStore(io).load(paneBase("k1"))).toEqual({ file: "/p/a.txt", on: null });
+    expect(await new SlotStore(io).load(paneBase("k1"))).toEqual({
+      file: "/p/a.txt",
+      on: null,
+      seenAt: expect.any(Number),
+    });
     expect(() => v.render(cx)).not.toThrow();
   });
 

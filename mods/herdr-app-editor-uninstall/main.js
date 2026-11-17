@@ -175,16 +175,31 @@ class SlotStore {
   remove(base) {
     return this.serial(base, async () => {
       const { f, a, b } = await this.both(base);
-      for (const step of planDelete(a, b)) {
-        if (step.op === "write")
-          await this.io.write(f[step.slot], JSON.stringify(step.record));
-        else
-          await this.io.unlink(f[step.slot]);
-      }
-      const dir = base.slice(0, base.lastIndexOf("/"));
-      if (dir)
-        await this.io.removeDirIfEmpty?.(dir);
+      await this.deleteSlots(base, f, a, b);
     });
+  }
+  update(base, decide) {
+    return this.serial(base, async () => {
+      const { f, a, b } = await this.both(base);
+      const decision = decide(pickCurrent(a, b).payload);
+      if (decision.op === "write") {
+        const { target, record } = planWrite(a, b, decision.payload);
+        await this.io.write(f[target], JSON.stringify(record));
+      } else if (decision.op === "remove")
+        await this.deleteSlots(base, f, a, b);
+      return decision;
+    });
+  }
+  async deleteSlots(base, f, a, b) {
+    for (const step of planDelete(a, b)) {
+      if (step.op === "write")
+        await this.io.write(f[step.slot], JSON.stringify(step.record));
+      else
+        await this.io.unlink(f[step.slot]);
+    }
+    const dir = base.slice(0, base.lastIndexOf("/"));
+    if (dir)
+      await this.io.removeDirIfEmpty?.(dir);
   }
   async owners(relDir) {
     const names = new Set;
