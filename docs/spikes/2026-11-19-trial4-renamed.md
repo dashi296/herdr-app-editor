@@ -21,6 +21,7 @@
 | Theme ボタン | 2つの editor の色が両方変わった |
 | 2つの editor が dirty → 左で cmd-s | 左（main.rs）だけ保存された |
 | dirty の pane を閉じる → 開き直す → Restore draft → cmd-s | 復元した内容が保存された。**下書きが残った**（下記） |
+| editor を開いたまま cmd-q → 起動し直す | 実施者の報告: editor の pane に同じファイルが開いて復元された |
 | `bun run uninstall:herdr`（editor の pane だけの space を含む） | space を閉じる確認が出て、承認後に閉じた。layout は `main` に戻り、3つの mod と layout が削除された。標準の `files` は残った。shared の `herdr-app-editor` は null。下書きのある `data/herdr-app-editor/` は残し、場所を表示した |
 | `bun run install:herdr` | 3つの mod と layout を入れて、`herdr-app-editor` layout に切り替わった。3つとも `herdr-app check` を通った |
 
@@ -41,5 +42,4 @@
 
 - 名前の衝突で install が止まること（実機の app home を汚すため、ユニットテストのみ）。
 - Herdr が起動していないときに uninstall が中止されること。
-- 再起動後の復元。
-- 2〜3回目に未確認だった Linux / Windows。
+- Linux / Windows。公開時は macOS だけで確認済みと README と RECIPE に明記した。
