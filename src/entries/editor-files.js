@@ -1,7 +1,8 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews.
 //
 // Modified from herdrdev/herdr-app defaults/mods/files/main.js (5216e6f), Apache-2.0
-// (vendor/herdr-files/LICENSE). Changes by herdr-app-editor, marked "herdr-app-editor:":
+// (LICENSE next to the built main.js; vendor/herdr-files/LICENSE in the repository).
+// Changes by herdr-app-editor, marked "herdr-app-editor:" in the source:
 //   - clicking a file opens it in the editor mod instead of the read-only preview (plan §3)
 //   - icon paths point at this mod's own folder
 //   - while an editor pane has focus, the tree follows a terminal in the same tab
