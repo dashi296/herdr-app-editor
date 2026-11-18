@@ -1,14 +1,14 @@
 // Which installed files are still exactly what install.ts wrote (review B5): reinstall and uninstall
 // overwrite or delete only files whose content hash still matches the manifest.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
  * Files Herdr writes at the root of a mod folder when it loads the mod (upstream src/mods.rs:318:
  * "gpui-kit.d.ts" | "jsconfig.json"), plus macOS .DS_Store. Anything else is a user file.
  */
-function generated(rel: string): boolean {
+export function generated(rel: string): boolean {
   const parts = rel.split("/");
   if (parts[parts.length - 1] === ".DS_Store") return true;
   return parts.length === 3 && parts[0] === "mods" && (parts[2] === "gpui-kit.d.ts" || parts[2] === "jsconfig.json");
@@ -23,28 +23,64 @@ function walk(home: string, target: string): string[] {
     .filter((rel) => statSync(join(home, rel)).isFile());
 }
 
-/** Every file under the targets, including names Herdr would generate. */
-export function listFiles(home: string, targets: string[]): string[] {
-  return targets.flatMap((t) => walk(home, t));
+/**
+ * The files of the package under the targets: everything except names Herdr generates. A mod folder
+ * that `herdr-app check` loaded in the repo holds such files too; they are not part of the package.
+ */
+export function packageFiles(root: string, targets: string[]): string[] {
+  return targets.flatMap((t) => walk(root, t)).filter((rel) => !generated(rel));
+}
+
+/** A relative path in one form only: "/"-separated, no empty, "." or ".." segment, not absolute. */
+function plainRel(rel: string): boolean {
+  if (rel.includes("\\") || rel.startsWith("/") || /^[A-Za-z]:/.test(rel)) return false;
+  return rel.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..");
+}
+
+/**
+ * Files a previous install recorded that the new package no longer has: what a reinstall removes.
+ * Only plain paths inside the targets, never names Herdr generates. A record that points elsewhere
+ * (damaged or edited by hand) is ignored rather than trusted with a delete.
+ */
+export function staleFiles(recorded: Record<string, string>, current: string[], targets: string[]): string[] {
+  const keep = new Set(current);
+  return Object.keys(recorded).filter(
+    (rel) =>
+      plainRel(rel) && !keep.has(rel) && !generated(rel) && targets.some((t) => rel === t || rel.startsWith(`${t}/`)),
+  );
+}
+
+/**
+ * Whether a folder on the way to `rel` (from the app home down) is a symlink. A delete through one
+ * could reach a file outside the app home, so a reinstall leaves such a record alone.
+ */
+export function throughLink(home: string, rel: string): boolean {
+  const segs = rel.split("/");
+  for (let i = 1; i < segs.length; i++) {
+    try {
+      if (lstatSync(join(home, ...segs.slice(0, i))).isSymbolicLink()) return true;
+    } catch {
+      return false; // missing: nothing below it to delete
+    }
+  }
+  return false;
 }
 
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
-/** Relative path → sha256 of every file under the targets, except files Herdr generates. */
-export function hashTargets(
-  home: string,
-  targets: string[],
-  include: Record<string, string> = {},
-): Record<string, string> {
+/**
+ * Relative path → sha256 of every file under the targets, except files Herdr generates. Those are
+ * never checked, even when an older install recorded them: Herdr rewrites them on an update.
+ */
+export function hashTargets(home: string, targets: string[]): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const t of targets)
-    for (const rel of walk(home, t)) if (!generated(rel) || rel in include) out[rel] = sha256(join(home, rel));
+  for (const rel of packageFiles(home, targets)) out[rel] = sha256(join(home, rel));
   return out;
 }
 
 /** Differences that mean someone else changed the installed files: "changed: <path>" / "added: <path>". */
 export function verifyOwned(home: string, targets: string[], hashes: Record<string, string>): string[] {
-  const now = hashTargets(home, targets, hashes);
+  const now = hashTargets(home, targets);
   const problems: string[] = [];
   for (const [rel, hash] of Object.entries(now)) {
     if (!(rel in hashes)) problems.push(`added: ${relative(".", rel)}`);

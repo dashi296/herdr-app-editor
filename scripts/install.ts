@@ -1,7 +1,7 @@
 // Installs the editor into the running Herdr's app home (plan §4 Step 5).
 //   bun run scripts/build.ts && bun run scripts/install.ts [--no-switch] [--force]
-import { cpSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, mkdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   LAYOUT,
   MODS,
@@ -14,7 +14,7 @@ import {
   status,
   switchLayout,
 } from "./lib/herdr";
-import { hashTargets, listFiles, verifyOwned } from "./lib/ownership";
+import { hashTargets, packageFiles, staleFiles, throughLink, verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 const st = status();
@@ -55,13 +55,30 @@ if (previous?.hashes && !force) {
   }
 }
 
-for (const m of MODS) cpSync(join(REPO, "mods", m), join(home, "mods", m), { recursive: true });
-cpSync(join(REPO, "layouts", `${LAYOUT}.json`), join(home, "layouts", `${LAYOUT}.json`));
+// Files the previous package had and this one does not would otherwise stay, and be recorded as ours again.
+// Folders that held only such files go too, up to (not including) the target itself.
+const files = packageFiles(REPO, targets);
+for (const rel of staleFiles(previous?.hashes ?? {}, files, targets)) {
+  if (throughLink(home, rel)) continue; // could reach outside the app home
+  rmSync(join(home, rel), { force: true });
+  const root = targets.find((t) => rel.startsWith(`${t}/`));
+  for (let dir = dirname(rel); root && dir !== root && dir.startsWith(`${root}/`); dir = dirname(dir)) {
+    try {
+      rmdirSync(join(home, dir)); // fails, and stops here, when the folder still holds something
+    } catch {
+      break;
+    }
+  }
+}
+
+// File by file: files Herdr generated in the repo's mod folders (after `herdr-app check`) stay behind.
+for (const rel of files) {
+  mkdirSync(dirname(join(home, rel)), { recursive: true });
+  cpSync(join(REPO, rel), join(home, rel));
+}
 
 const previousLayout = previous?.previousLayout ?? (st.layout && st.layout !== LAYOUT ? st.layout : "main");
 mkdirSync(dataDir(), { recursive: true });
-// Every file of the package is ours, even one named like a file Herdr generates.
-const shipped = Object.fromEntries(listFiles(REPO, targets).map((f) => [f, ""]));
 writeFileSync(
   manifestPath(),
   JSON.stringify(
@@ -69,7 +86,7 @@ writeFileSync(
       installedAt: new Date().toISOString(),
       files: targets,
       previousLayout,
-      hashes: hashTargets(home, targets, shipped),
+      hashes: hashTargets(home, targets),
     },
     null,
     2,
