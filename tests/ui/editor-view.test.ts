@@ -258,6 +258,47 @@ describe("openFile", () => {
     expect(code().text).toBe("newer draft");
     expect(v.draftOffer).toBeNull();
   });
+
+  test("restoring another pane's draft takes it over, so saving leaves no draft behind", async () => {
+    // A closed pane's draft, restored in this pane (k1): nothing else would ever remove it.
+    await new SlotStore(io).save(draftBase(null, "/p/a.txt", "gone"), {
+      machine: null,
+      path: "/p/a.txt",
+      ownerKey: "gone",
+      baselineHash: "x",
+      text: "restored\n",
+      savedAt: 1,
+    });
+    const v = await opened();
+    await v.act("restore", cx);
+    await settle();
+    expect(hasDraft("/p/a.txt")).toBe(true);
+    expect(draftKeys().some((k) => k.startsWith(draftBase(null, "/p/a.txt", "gone")))).toBe(false);
+    expect(await v.save(cx)).toBe(true);
+    expect(files.disk.get("/p/a.txt")).toBe("restored\n");
+    expect(draftKeys()).toEqual([]);
+  });
+
+  test("a restored draft stays where it was if this pane's copy cannot be written", async () => {
+    await new SlotStore(io).save(draftBase(null, "/p/a.txt", "gone"), {
+      machine: null,
+      path: "/p/a.txt",
+      ownerKey: "gone",
+      baselineHash: "x",
+      text: "restored\n",
+      savedAt: 1,
+    });
+    const v = await opened();
+    const write = io.write.bind(io);
+    io.write = async (rel, text) => {
+      if (rel.startsWith(draftBase(null, "/p/a.txt", "k1"))) throw new Error("disk full");
+      return write(rel, text);
+    };
+    await v.act("restore", cx);
+    await settle();
+    expect(v.doc?.text).toBe("restored\n");
+    expect(draftKeys().some((k) => k.startsWith(draftBase(null, "/p/a.txt", "gone")))).toBe(true);
+  });
 });
 
 describe("editing", () => {
