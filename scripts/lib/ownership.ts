@@ -31,6 +31,25 @@ export function packageFiles(root: string, targets: string[]): string[] {
   return targets.flatMap((t) => walk(root, t)).filter((rel) => !generated(rel));
 }
 
+/** A relative path in one form only: "/"-separated, no empty, "." or ".." segment, not absolute. */
+function plainRel(rel: string): boolean {
+  if (rel.includes("\\") || rel.startsWith("/") || /^[A-Za-z]:/.test(rel)) return false;
+  return rel.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..");
+}
+
+/**
+ * Files a previous install recorded that the new package no longer has: what a reinstall removes.
+ * Only plain paths inside the targets, never names Herdr generates. A record that points elsewhere
+ * (damaged or edited by hand) is ignored rather than trusted with a delete.
+ */
+export function staleFiles(recorded: Record<string, string>, current: string[], targets: string[]): string[] {
+  const keep = new Set(current);
+  return Object.keys(recorded).filter(
+    (rel) =>
+      plainRel(rel) && !keep.has(rel) && !generated(rel) && targets.some((t) => rel === t || rel.startsWith(`${t}/`)),
+  );
+}
+
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
 /**

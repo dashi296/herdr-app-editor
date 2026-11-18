@@ -1,6 +1,6 @@
 // Installs the editor into the running Herdr's app home (plan §4 Step 5).
 //   bun run scripts/build.ts && bun run scripts/install.ts [--no-switch] [--force]
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   LAYOUT,
@@ -14,7 +14,7 @@ import {
   status,
   switchLayout,
 } from "./lib/herdr";
-import { generated, hashTargets, packageFiles, verifyOwned } from "./lib/ownership";
+import { hashTargets, packageFiles, staleFiles, verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 const st = status();
@@ -56,11 +56,19 @@ if (previous?.hashes && !force) {
 }
 
 // Files the previous package had and this one does not would otherwise stay, and be recorded as ours again.
+// Folders that held only such files go too, up to (not including) the target itself.
 const files = packageFiles(REPO, targets);
-const next = new Set(files);
-for (const rel of Object.keys(previous?.hashes ?? {}))
-  if (!next.has(rel) && !generated(rel) && targets.some((t) => rel === t || rel.startsWith(`${t}/`)))
-    rmSync(join(home, rel), { force: true });
+for (const rel of staleFiles(previous?.hashes ?? {}, files, targets)) {
+  rmSync(join(home, rel), { force: true });
+  const root = targets.find((t) => rel.startsWith(`${t}/`));
+  for (let dir = dirname(rel); root && dir !== root && dir.startsWith(`${root}/`); dir = dirname(dir)) {
+    try {
+      rmdirSync(join(home, dir)); // fails, and stops here, when the folder still holds something
+    } catch {
+      break;
+    }
+  }
+}
 
 // File by file: files Herdr generated in the repo's mod folders (after `herdr-app check`) stay behind.
 for (const rel of files) {

@@ -120,13 +120,16 @@ describe("install", () => {
   test("a reinstall removes files the previous package had and this one does not", () => {
     expect(install().code).toBe(0);
     // As if the previous package also shipped mods/<editor>/old.js.
-    const old = `mods/${MOD_EDITOR}/old.js`;
+    const old = `mods/${MOD_EDITOR}/obsolete/old.js`;
+    mkdirSync(at(`mods/${MOD_EDITOR}/obsolete`));
     writeFileSync(at(old), "// dropped from the package");
     const m = manifest();
     m.hashes[old] = createHash("sha256").update("// dropped from the package").digest("hex");
     writeFileSync(at(`data/${NS}/install.json`), JSON.stringify(m));
     expect(install().code).toBe(0);
     expect(existsSync(at(old))).toBe(false);
+    expect(existsSync(at(`mods/${MOD_EDITOR}/obsolete`))).toBe(false); // its folder held nothing else
+    expect(existsSync(at(`mods/${MOD_EDITOR}`))).toBe(true);
     expect(Object.keys(manifest().hashes)).not.toContain(old);
   });
 

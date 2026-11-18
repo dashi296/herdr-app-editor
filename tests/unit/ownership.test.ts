@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hashTargets, packageFiles, verifyOwned } from "../../scripts/lib/ownership";
+import { hashTargets, packageFiles, staleFiles, verifyOwned } from "../../scripts/lib/ownership";
 
 let home = "";
 beforeEach(() => {
@@ -75,5 +75,38 @@ describe("ownership (review B5)", () => {
     const hashes = hashTargets(home, targets);
     rmSync(join(home, "mods/editor/mod.json"));
     expect(verifyOwned(home, targets, hashes)).toEqual([]);
+  });
+});
+
+describe("staleFiles: what a reinstall removes", () => {
+  const recorded = (...rels: string[]) => Object.fromEntries(rels.map((r) => [r, "h"]));
+  test("files the previous package had and this one does not", () => {
+    expect(
+      staleFiles(
+        recorded("mods/editor/main.js", "mods/editor/old.js", "layouts/editor.json"),
+        ["mods/editor/main.js", "layouts/editor.json"],
+        targets,
+      ),
+    ).toEqual(["mods/editor/old.js"]);
+  });
+  test("never names Herdr generates, nor paths outside the targets", () => {
+    expect(
+      staleFiles(recorded("mods/editor/jsconfig.json", "mods/other/main.js", "layouts/main.json"), [], targets),
+    ).toEqual([]);
+  });
+  test("never a path that leaves its target (a damaged or edited record)", () => {
+    expect(
+      staleFiles(
+        recorded(
+          "mods/editor/../../../outside.txt",
+          "mods/editor/sub/../../other/main.js",
+          "mods/editor//main.js",
+          "/etc/passwd",
+          "mods/editor\\..\\..\\x",
+        ),
+        [],
+        targets,
+      ),
+    ).toEqual([]);
   });
 });
