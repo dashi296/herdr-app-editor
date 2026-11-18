@@ -16,3 +16,7 @@ bun run uninstall:herdr   # closes editor panes, switches back to the previous l
 ```
 
 In the Files panel, click a file to open it in the editor; cmd-click (ctrl-click on Linux/Windows) opens it in a new editor pane. Save with cmd-s / ctrl-s.
+
+## License
+
+[Apache-2.0](LICENSE). `mods/herdr-app-editor-files` is a modified copy of Herdr's `files` mod ([herdrdev/herdr-app](https://github.com/herdrdev/herdr-app), Apache-2.0); its icons are from [Lucide](https://lucide.dev) (ISC, `LICENSE-Lucide.txt`).
