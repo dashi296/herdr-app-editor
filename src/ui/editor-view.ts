@@ -811,18 +811,32 @@ export abstract class EditorView extends View {
         .py(6)
         .gap(8)
         .items_center()
+        // In a narrow pane the buttons wrap below the text instead of squeezing it to one word per line.
+        .flex_wrap()
         .border_b(1)
         .border_color(t.border)
         .bg(b.kind === "error" ? t.blocked : b.kind === "warn" ? t.raised : t.surface)
-        .child(div().flex_1().min_w(0).child(b.text))
+        .child(div().flex_grow(1).flex_basis(BANNER_TEXT_MIN).min_w(0).child(b.text))
+        // The buttons move together; in a pane narrower than all of them, they wrap among themselves.
+        // A banner without buttons gets no group, so no empty item can wrap and add a gap.
         .children(
-          b.actions.map((a) =>
-            this.button(`act-${i}-${a}`, ACTION_LABEL[a], t, (cx) => {
-              cx.spawn(async (cx) => {
-                await this.act(a, cx);
-              });
-            }),
-          ),
+          b.actions.length === 0
+            ? []
+            : [
+                h_flex()
+                  .flex_wrap()
+                  .min_w(0)
+                  .gap(8)
+                  .children(
+                    b.actions.map((a) =>
+                      this.button(`act-${i}-${a}`, ACTION_LABEL[a], t, (cx) => {
+                        cx.spawn(async (cx) => {
+                          await this.act(a, cx);
+                        });
+                      }).flex_shrink_0(),
+                    ),
+                  ),
+              ],
         ),
     );
     return root.child(header).children(banners).child(Editor.new(this.code).flex_1().min_h(0));
@@ -870,6 +884,9 @@ export abstract class EditorView extends View {
       );
   }
 }
+
+/** The width a banner's text keeps beside its buttons; below it the buttons wrap to the next line. */
+const BANNER_TEXT_MIN = 320;
 
 const ACTION_LABEL: Record<Action, string> = {
   reload: "Reload",
