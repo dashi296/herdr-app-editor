@@ -8,7 +8,7 @@ import { join, relative } from "node:path";
  * Files Herdr writes at the root of a mod folder when it loads the mod (upstream src/mods.rs:318:
  * "gpui-kit.d.ts" | "jsconfig.json"), plus macOS .DS_Store. Anything else is a user file.
  */
-function generated(rel: string): boolean {
+export function generated(rel: string): boolean {
   const parts = rel.split("/");
   if (parts[parts.length - 1] === ".DS_Store") return true;
   return parts.length === 3 && parts[0] === "mods" && (parts[2] === "gpui-kit.d.ts" || parts[2] === "jsconfig.json");

@@ -1,6 +1,6 @@
 // Installs the editor into the running Herdr's app home (plan §4 Step 5).
 //   bun run scripts/build.ts && bun run scripts/install.ts [--no-switch] [--force]
-import { cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   LAYOUT,
@@ -14,7 +14,7 @@ import {
   status,
   switchLayout,
 } from "./lib/herdr";
-import { hashTargets, packageFiles, verifyOwned } from "./lib/ownership";
+import { generated, hashTargets, packageFiles, verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 const st = status();
@@ -55,8 +55,15 @@ if (previous?.hashes && !force) {
   }
 }
 
+// Files the previous package had and this one does not would otherwise stay, and be recorded as ours again.
+const files = packageFiles(REPO, targets);
+const next = new Set(files);
+for (const rel of Object.keys(previous?.hashes ?? {}))
+  if (!next.has(rel) && !generated(rel) && targets.some((t) => rel === t || rel.startsWith(`${t}/`)))
+    rmSync(join(home, rel), { force: true });
+
 // File by file: files Herdr generated in the repo's mod folders (after `herdr-app check`) stay behind.
-for (const rel of packageFiles(REPO, targets)) {
+for (const rel of files) {
   mkdirSync(dirname(join(home, rel)), { recursive: true });
   cpSync(join(REPO, rel), join(home, rel));
 }
