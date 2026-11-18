@@ -1,7 +1,7 @@
 // Which installed files are still exactly what install.ts wrote (review B5): reinstall and uninstall
 // overwrite or delete only files whose content hash still matches the manifest.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
@@ -48,6 +48,22 @@ export function staleFiles(recorded: Record<string, string>, current: string[], 
     (rel) =>
       plainRel(rel) && !keep.has(rel) && !generated(rel) && targets.some((t) => rel === t || rel.startsWith(`${t}/`)),
   );
+}
+
+/**
+ * Whether a folder on the way to `rel` (from the app home down) is a symlink. A delete through one
+ * could reach a file outside the app home, so a reinstall leaves such a record alone.
+ */
+export function throughLink(home: string, rel: string): boolean {
+  const segs = rel.split("/");
+  for (let i = 1; i < segs.length; i++) {
+    try {
+      if (lstatSync(join(home, ...segs.slice(0, i))).isSymbolicLink()) return true;
+    } catch {
+      return false; // missing: nothing below it to delete
+    }
+  }
+  return false;
 }
 
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");

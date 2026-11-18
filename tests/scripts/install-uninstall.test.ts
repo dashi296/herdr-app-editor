@@ -2,7 +2,16 @@
 // with a fake `herdr-app` on PATH (fake-herdr-app.ts). They copy the built mods from the repo.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { LAYOUT_NAME, MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, NS } from "../../src/core/names";
@@ -131,6 +140,21 @@ describe("install", () => {
     expect(existsSync(at(`mods/${MOD_EDITOR}/obsolete`))).toBe(false); // its folder held nothing else
     expect(existsSync(at(`mods/${MOD_EDITOR}`))).toBe(true);
     expect(Object.keys(manifest().hashes)).not.toContain(old);
+  });
+
+  test.skipIf(process.platform === "win32")("a stale record behind a symlinked folder is not followed", () => {
+    expect(install().code).toBe(0);
+    // mods/<editor>/obsolete points outside the app home; the record names a file through it.
+    const outside = join(root, "outside");
+    mkdirSync(outside);
+    writeFileSync(join(outside, "old.js"), "not ours");
+    symlinkSync(outside, at(`mods/${MOD_EDITOR}/obsolete`));
+    const old = `mods/${MOD_EDITOR}/obsolete/old.js`;
+    const m = manifest();
+    m.hashes[old] = createHash("sha256").update("not ours").digest("hex");
+    writeFileSync(at(`data/${NS}/install.json`), JSON.stringify(m));
+    install();
+    expect(readFileSync(join(outside, "old.js"), "utf8")).toBe("not ours");
   });
 
   test("does not overwrite a folder it did not install", () => {

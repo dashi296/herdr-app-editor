@@ -14,7 +14,7 @@ import {
   status,
   switchLayout,
 } from "./lib/herdr";
-import { hashTargets, packageFiles, staleFiles, verifyOwned } from "./lib/ownership";
+import { hashTargets, packageFiles, staleFiles, throughLink, verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 const st = status();
@@ -59,6 +59,7 @@ if (previous?.hashes && !force) {
 // Folders that held only such files go too, up to (not including) the target itself.
 const files = packageFiles(REPO, targets);
 for (const rel of staleFiles(previous?.hashes ?? {}, files, targets)) {
+  if (throughLink(home, rel)) continue; // could reach outside the app home
   rmSync(join(home, rel), { force: true });
   const root = targets.find((t) => rel.startsWith(`${t}/`));
   for (let dir = dirname(rel); root && dir !== root && dir.startsWith(`${root}/`); dir = dirname(dir)) {
