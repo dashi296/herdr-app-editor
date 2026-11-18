@@ -23,28 +23,29 @@ function walk(home: string, target: string): string[] {
     .filter((rel) => statSync(join(home, rel)).isFile());
 }
 
-/** Every file under the targets, including names Herdr would generate. */
-export function listFiles(home: string, targets: string[]): string[] {
-  return targets.flatMap((t) => walk(home, t));
+/**
+ * The files of the package under the targets: everything except names Herdr generates. A mod folder
+ * that `herdr-app check` loaded in the repo holds such files too; they are not part of the package.
+ */
+export function packageFiles(root: string, targets: string[]): string[] {
+  return targets.flatMap((t) => walk(root, t)).filter((rel) => !generated(rel));
 }
 
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
-/** Relative path → sha256 of every file under the targets, except files Herdr generates. */
-export function hashTargets(
-  home: string,
-  targets: string[],
-  include: Record<string, string> = {},
-): Record<string, string> {
+/**
+ * Relative path → sha256 of every file under the targets, except files Herdr generates. Those are
+ * never checked, even when an older install recorded them: Herdr rewrites them on an update.
+ */
+export function hashTargets(home: string, targets: string[]): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const t of targets)
-    for (const rel of walk(home, t)) if (!generated(rel) || rel in include) out[rel] = sha256(join(home, rel));
+  for (const rel of packageFiles(home, targets)) out[rel] = sha256(join(home, rel));
   return out;
 }
 
 /** Differences that mean someone else changed the installed files: "changed: <path>" / "added: <path>". */
 export function verifyOwned(home: string, targets: string[], hashes: Record<string, string>): string[] {
-  const now = hashTargets(home, targets, hashes);
+  const now = hashTargets(home, targets);
   const problems: string[] = [];
   for (const [rel, hash] of Object.entries(now)) {
     if (!(rel in hashes)) problems.push(`added: ${relative(".", rel)}`);

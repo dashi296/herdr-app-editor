@@ -1,7 +1,7 @@
 // Installs the editor into the running Herdr's app home (plan §4 Step 5).
 //   bun run scripts/build.ts && bun run scripts/install.ts [--no-switch] [--force]
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   LAYOUT,
   MODS,
@@ -14,7 +14,7 @@ import {
   status,
   switchLayout,
 } from "./lib/herdr";
-import { hashTargets, listFiles, verifyOwned } from "./lib/ownership";
+import { hashTargets, packageFiles, verifyOwned } from "./lib/ownership";
 
 const home = appHome();
 const st = status();
@@ -55,13 +55,14 @@ if (previous?.hashes && !force) {
   }
 }
 
-for (const m of MODS) cpSync(join(REPO, "mods", m), join(home, "mods", m), { recursive: true });
-cpSync(join(REPO, "layouts", `${LAYOUT}.json`), join(home, "layouts", `${LAYOUT}.json`));
+// File by file: files Herdr generated in the repo's mod folders (after `herdr-app check`) stay behind.
+for (const rel of packageFiles(REPO, targets)) {
+  mkdirSync(dirname(join(home, rel)), { recursive: true });
+  cpSync(join(REPO, rel), join(home, rel));
+}
 
 const previousLayout = previous?.previousLayout ?? (st.layout && st.layout !== LAYOUT ? st.layout : "main");
 mkdirSync(dataDir(), { recursive: true });
-// Every file of the package is ours, even one named like a file Herdr generates.
-const shipped = Object.fromEntries(listFiles(REPO, targets).map((f) => [f, ""]));
 writeFileSync(
   manifestPath(),
   JSON.stringify(
@@ -69,7 +70,7 @@ writeFileSync(
       installedAt: new Date().toISOString(),
       files: targets,
       previousLayout,
-      hashes: hashTargets(home, targets, shipped),
+      hashes: hashTargets(home, targets),
     },
     null,
     2,

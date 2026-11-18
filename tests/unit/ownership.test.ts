@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hashTargets, verifyOwned } from "../../scripts/lib/ownership";
+import { hashTargets, packageFiles, verifyOwned } from "../../scripts/lib/ownership";
 
 let home = "";
 beforeEach(() => {
@@ -40,12 +40,21 @@ describe("ownership (review B5)", () => {
       "added: mods/editor/sub/jsconfig.json",
     ]);
   });
-  test("a generated name that was installed is checked like any file", () => {
-    writeFileSync(join(home, "mods/editor/jsconfig.json"), '{"ours":1}');
-    // install.ts passes the files of the package being installed as `include`.
-    const hashes = hashTargets(home, targets, { "mods/editor/jsconfig.json": "" });
+  test("a generated name is never checked, even one an older install recorded", () => {
+    // Installs before this fix copied and hashed them; Herdr rewrites them on an update.
+    writeFileSync(join(home, "mods/editor/jsconfig.json"), '{"old":1}');
+    const hashes = { ...hashTargets(home, targets), "mods/editor/jsconfig.json": "an old hash" };
     writeFileSync(join(home, "mods/editor/jsconfig.json"), "{}");
-    expect(verifyOwned(home, targets, hashes)).toEqual(["changed: mods/editor/jsconfig.json"]);
+    expect(verifyOwned(home, targets, hashes)).toEqual([]);
+  });
+  test("package files leave out what Herdr generates", () => {
+    writeFileSync(join(home, "mods/editor/jsconfig.json"), "{}");
+    writeFileSync(join(home, "mods/editor/gpui-kit.d.ts"), "");
+    expect(packageFiles(home, targets).sort()).toEqual([
+      "layouts/editor.json",
+      "mods/editor/main.js",
+      "mods/editor/mod.json",
+    ]);
   });
   test("a changed file is reported", () => {
     const hashes = hashTargets(home, targets);
