@@ -15,7 +15,7 @@ This layout works like Herdr's own `main` layout, except the Files panel opens f
     - the full path in 11 px `theme().dim`, right-aligned and truncated
     - "Saving…" while a save runs
     - a 22 px "Theme: <name>" button
-  - Banners below the header, one per line with 6 px vertical padding. `info` banners use `theme().surface`, `warn` banners use `theme().raised` and `error` banners use `theme().blocked`. Each banner can carry action buttons (26 px high, 6 px radius, `theme().input` border).
+  - Banners below the header, one per line with 6 px vertical padding. `info` banners use `theme().surface`, `warn` banners use `theme().raised` and `error` banners use `theme().blocked`. Each banner can carry action buttons (26 px high, 6 px radius, `theme().input` border) to the right of the text. When the text would get less than 320 px, the buttons wrap below it.
   - The code editor (Herdr's `Editor`) at 13 px in the user's terminal font, with line numbers and folding, filling the rest of the pane.
 - **Save dialog:** a modal 440×150 dialog reading "Save changes before opening another file?", with the path and three buttons: Cancel, Don't save, Save.
 

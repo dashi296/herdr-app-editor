@@ -1484,11 +1484,11 @@ class EditorView extends View {
       this.maybeRetheme();
       cx.notify();
     }).child(`Theme: ${this.appliedTheme?.name ?? HERDR_THEME}`));
-    const banners = model.banners.map((b, i) => h_flex().id(`banner-${i}`).flex_none().px(12).py(6).gap(8).items_center().border_b(1).border_color(t.border).bg(b.kind === "error" ? t.blocked : b.kind === "warn" ? t.raised : t.surface).child(div().flex_1().min_w(0).child(b.text)).children(b.actions.map((a) => this.button(`act-${i}-${a}`, ACTION_LABEL[a], t, (cx) => {
+    const banners = model.banners.map((b, i) => h_flex().id(`banner-${i}`).flex_none().px(12).py(6).gap(8).items_center().flex_wrap().border_b(1).border_color(t.border).bg(b.kind === "error" ? t.blocked : b.kind === "warn" ? t.raised : t.surface).child(div().flex_grow(1).flex_basis(BANNER_TEXT_MIN).min_w(0).child(b.text)).child(h_flex().flex_shrink_0().gap(8).children(b.actions.map((a) => this.button(`act-${i}-${a}`, ACTION_LABEL[a], t, (cx) => {
       cx.spawn(async (cx2) => {
         await this.act(a, cx2);
       });
-    }))));
+    })))));
     return root.child(header).children(banners).child(Editor.new(this.code).flex_1().min_h(0));
   }
   button(id, label, t, onClick) {
@@ -1503,6 +1503,7 @@ class EditorView extends View {
     return v_flex().id("editor-dialog").size_full().p(18).gap(12).bg(t.popover).text_color(t.foreground).text_size(13).track_focus(this.handle).child(div().font_semibold().child("Save changes before opening another file?")).child(div().text_color(t.muted).truncate().child(d.file)).child(h_flex().gap(8).justify_end().child(this.button("dlg-cancel", "Cancel", t, choose("cancel"))).child(this.button("dlg-discard", "Don't save", t, choose("discard"))).child(this.button("dlg-save", "Save", t, choose("save"))));
   }
 }
+var BANNER_TEXT_MIN = 320;
 var ACTION_LABEL = {
   reload: "Reload",
   keep: "Keep mine",
