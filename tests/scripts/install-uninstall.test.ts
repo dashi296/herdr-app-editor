@@ -153,7 +153,7 @@ describe("install", () => {
     const m = manifest();
     m.hashes[old] = createHash("sha256").update("not ours").digest("hex");
     writeFileSync(at(`data/${NS}/install.json`), JSON.stringify(m));
-    install();
+    expect(install().code).toBe(0); // the reinstall completes and skips that record
     expect(readFileSync(join(outside, "old.js"), "utf8")).toBe("not ours");
   });
 
