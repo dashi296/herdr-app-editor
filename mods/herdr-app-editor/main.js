@@ -1410,9 +1410,27 @@ class EditorView extends View {
           this.setDoc(reloadFrom(d, disk));
       }
     } else if (a === "restore" && this.draftOffer) {
-      this.code?.set_value(this.draftOffer.text);
-      this.doc = edit(d, this.draftOffer.text);
+      const o = this.draftOffer;
+      this.code?.set_value(o.text);
+      this.doc = edit(d, o.text);
       this.draftOffer = null;
+      const r = this.doc;
+      if (o.ownerKey !== this.key && isDirty(r) && this.writer) {
+        this.writer.update({
+          machine: r.machine,
+          path: r.path,
+          ownerKey: this.key,
+          baselineHash: fnv1a32(r.baseline),
+          text: r.text,
+          savedAt: Date.now()
+        }, timerFrom(cx));
+        try {
+          await this.writer.flush();
+          await this.deps.store.remove(draftBase(o.machine, o.path, o.ownerKey));
+        } catch (e) {
+          this.draftError = String(e);
+        }
+      }
     } else if (a === "discardDraft" && this.draftOffer) {
       const o = this.draftOffer;
       this.draftOffer = null;
