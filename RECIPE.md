@@ -56,7 +56,7 @@ This layout works like Herdr's own `main` layout, except the Files panel opens f
 - `EditorState` cannot change language or colors, and `set_value()` clears undo and fires no `change` event.
 - `fs.writeFile` calls must not overlap, or files get corrupted. Herdr has no API to delete a `shared` key, so uninstall leaves `"herdr-app-editor": null`.
 - The names `herdr-app-editor`, `herdr-app-editor-files`, `herdr-app-editor-uninstall` and the layout `herdr-app-editor` are compiled into the code: command targets, the shared key and icon paths. If a name is taken, do not rename the copied folders; change `src/core/names.ts` and rebuild (`bun run build`).
-- Requires Herdr Desktop 0.1.16 or later (`EditorState.focus`, `checking()`, `watchFolder().cancel()`). Windows paths and permission checks have not been run on Windows yet.
+- Requires Herdr Desktop 0.1.16 or later (`EditorState.focus`, `checking()`, `watchFolder().cancel()`). Tested on macOS only. Linux and Windows are untested, including the Windows paths and permission checks.
 
 ## Done when
 

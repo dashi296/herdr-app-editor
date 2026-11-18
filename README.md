@@ -9,6 +9,8 @@ See [RECIPE.md](RECIPE.md) for what it does and how it is built, and [docs/exten
 
 Requires Herdr Desktop 0.1.16 or later and [Bun](https://bun.sh) 1.3.5 (`mise install`; run `mise trust` once if mise reports the config as not trusted). Herdr must be running.
 
+Tested on macOS only. Linux and Windows are untested: the code has their paths (ctrl-s, permission checks), but nobody has run it there yet.
+
 ```sh
 bun install
 bun run install:herdr     # builds, copies mods/ and layouts/herdr-app-editor.json into the app home, switches to the "herdr-app-editor" layout
