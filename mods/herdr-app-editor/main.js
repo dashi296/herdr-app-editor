@@ -1484,11 +1484,13 @@ class EditorView extends View {
       this.maybeRetheme();
       cx.notify();
     }).child(`Theme: ${this.appliedTheme?.name ?? HERDR_THEME}`));
-    const banners = model.banners.map((b, i) => h_flex().id(`banner-${i}`).flex_none().px(12).py(6).gap(8).items_center().flex_wrap().border_b(1).border_color(t.border).bg(b.kind === "error" ? t.blocked : b.kind === "warn" ? t.raised : t.surface).child(div().flex_grow(1).flex_basis(BANNER_TEXT_MIN).min_w(0).child(b.text)).child(h_flex().flex_shrink_0().gap(8).children(b.actions.map((a) => this.button(`act-${i}-${a}`, ACTION_LABEL[a], t, (cx) => {
-      cx.spawn(async (cx2) => {
-        await this.act(a, cx2);
-      });
-    })))));
+    const banners = model.banners.map((b, i) => h_flex().id(`banner-${i}`).flex_none().px(12).py(6).gap(8).items_center().flex_wrap().border_b(1).border_color(t.border).bg(b.kind === "error" ? t.blocked : b.kind === "warn" ? t.raised : t.surface).child(div().flex_grow(1).flex_basis(BANNER_TEXT_MIN).min_w(0).child(b.text)).children(b.actions.length === 0 ? [] : [
+      h_flex().flex_wrap().min_w(0).gap(8).children(b.actions.map((a) => this.button(`act-${i}-${a}`, ACTION_LABEL[a], t, (cx) => {
+        cx.spawn(async (cx2) => {
+          await this.act(a, cx2);
+        });
+      }).flex_shrink_0()))
+    ]));
     return root.child(header).children(banners).child(Editor.new(this.code).flex_1().min_h(0));
   }
   button(id, label, t, onClick) {
