@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { draftBase, paneBase } from "../../src/core/draft/paths";
 import type { Doc } from "../../src/core/document/document";
 import { createRegistry } from "../../src/core/extensions/registry";
-import { MOD_EDITOR } from "../../src/core/names";
+import { MOD_EDITOR, MOD_OPEN, SHARED_KEY } from "../../src/core/names";
 import type { FileStore, FolderWatch } from "../../src/ports/file-store";
 import { SlotStore, type SlotIO } from "../../src/ports/slot-store";
 import { deferred, FakeEditorState, host, install, makeCx, reset, settle, type Deferred, type FakeCx } from "./host";
@@ -130,11 +130,162 @@ beforeEach(() => {
 });
 
 describe("init", () => {
-  test("without a key it only renders a message (herdr-app check)", () => {
+  test("herdr-app check renders only: no key, no store", async () => {
+    host.checking = true;
+    host.props = { file: "/p/a.txt" };
+    files.disk.set("/p/a.txt", "a");
     const v = makeView();
     v.init(undefined, cx);
-    expect(v.screen).toEqual({ kind: "message", text: "Open a file from the Files panel." });
+    await settle();
+    expect(v.screen.kind).not.toBe("ready");
+    expect(io.files.size).toBe(0);
     expect(() => v.render(cx)).not.toThrow();
+  });
+
+  test("opens props.file without props.key", async () => {
+    files.disk.set("/p/a.txt", "hello\n");
+    host.props = { file: "/p/a.txt" };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    expect(v.screen.kind).toBe("ready");
+    expect(v.doc?.text).toBe("hello\n");
+  });
+
+  test("without a key, drafts are written under a generated key", async () => {
+    files.disk.set("/p/a.txt", "hello\n");
+    host.props = { file: "/p/a.txt" };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    code().type("edited\n", cx);
+    await settle();
+    const owners = draftKeys().map((k) => k.split("/")[2]!.split(".")[0]);
+    expect(owners.length).toBeGreaterThan(0);
+    expect(owners.every((o) => /^m[0-9a-z]+$/.test(o!))).toBe(true);
+  });
+
+  test("a pane split by quick open registers the one new editor pane in its tab, focused or not", async () => {
+    host.panes = [
+      { pane: "e0", tab: "t1", mod: MOD_EDITOR },
+      { pane: "e9", tab: "t1", mod: MOD_EDITOR },
+    ];
+    host.focused = { pane: "p-elsewhere" };
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: ["e0"] };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, { pane: string }> }).registry;
+    expect(reg).toEqual({ k1: expect.objectContaining({ pane: "e9", tab: "t1" }) });
+  });
+
+  test("it uses the props it got at init: on the device props() is empty by the time the first load ends", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: [] };
+    const v = makeView();
+    v.init(undefined, cx);
+    host.props = {};
+    await settle();
+    const reg = (host.shared.get(SHARED_KEY) as { registry?: Record<string, { pane: string }> } | undefined)?.registry;
+    expect(reg?.k1).toMatchObject({ pane: "e9" });
+  });
+
+  test("it does not claim again when its key is already registered (a restart keeps the split props)", async () => {
+    // The pane was moved to tab t9; its old tab t1 now holds one editor pane that is not in before.
+    host.panes = [
+      { pane: "e5", tab: "t9", mod: MOD_EDITOR },
+      { pane: "e9", tab: "t1", mod: MOD_EDITOR },
+    ];
+    host.shared.set(SHARED_KEY, { registry: { k1: { pane: "e5", tab: "t9", lastFocus: 7 } } });
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: [] };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, unknown> }).registry;
+    expect(reg).toEqual({ k1: { pane: "e5", tab: "t9", lastFocus: 7 } });
+  });
+
+  test("it does not claim a pane another key already names", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    host.shared.set(SHARED_KEY, { registry: { other: { pane: "e9", tab: "t1", lastFocus: 7 } } });
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: [] };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, unknown> }).registry;
+    expect(Object.keys(reg)).toEqual(["other"]);
+  });
+
+  test("with two new editor panes it cannot tell which is its own, and registers neither", async () => {
+    host.panes = [
+      { pane: "e8", tab: "t1", mod: MOD_EDITOR },
+      { pane: "e9", tab: "t1", mod: MOD_EDITOR },
+    ];
+    host.focused = { pane: "e9" };
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: [] };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    expect((host.shared.get(SHARED_KEY) as { registry?: object } | undefined)?.registry ?? {}).toEqual({});
+  });
+
+  test("a pane opened without props.before does not register itself after loading", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    host.focused = { pane: "e9" };
+    await opened();
+    expect((host.shared.get(SHARED_KEY) as { registry?: object } | undefined)?.registry ?? {}).toEqual({});
+  });
+
+  test("registering drops other keys that name the same pane (a key from before a restart)", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    host.focused = { pane: "e9" };
+    host.shared.set(SHARED_KEY, { registry: { old: { pane: "e9", tab: "t1", lastFocus: 1 } } });
+    const v = await opened();
+    await v.onCommand("focus", cx);
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, unknown> }).registry;
+    expect(Object.keys(reg)).toEqual(["k1"]);
+  });
+
+  test("an empty editor shows Open file… and the bound key", async () => {
+    host.keys = [{ section: "global", keys: "cmd-o", action: `mod.open:${MOD_OPEN}` }];
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    host.texts = [];
+    host.clicks.clear();
+    v.render(cx);
+    expect(host.texts).toContain("Open file…");
+    expect(host.texts).toContain("cmd-o");
+    host.clicks.get("open-file")!({}, cx);
+    expect(host.run).toContainEqual({ command: "mod.open", args: { name: MOD_OPEN } });
+  });
+
+  test("an empty editor without a bound key shows only the button", async () => {
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    host.texts = [];
+    v.render(cx);
+    expect(host.texts).toContain("Open file…");
+    expect(host.texts.some((x) => x.includes("cmd-"))).toBe(false);
+  });
+
+  test("Open file… registers the empty pane so the opened file comes back to it", async () => {
+    host.panes = [{ pane: "e1", tab: "t1", mod: MOD_EDITOR }];
+    host.focused = { pane: "e1" };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    host.clicks.clear();
+    v.render(cx);
+    host.clicks.get("open-file")!({}, cx);
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, { pane: string }> }).registry;
+    expect(Object.values(reg)).toEqual([expect.objectContaining({ pane: "e1", tab: "t1" })]);
   });
 
   test("opens the file from props and remembers it for the pane", async () => {
@@ -519,6 +670,17 @@ describe("external changes", () => {
 });
 
 describe("close", () => {
+  test("a dialog button closes the overlay it was opened as, even when props() is empty later", () => {
+    host.props = { role: "dialog", to: "k1", req: "r1", file: "/p/a.txt", overlay: "ov7" };
+    const v = makeView();
+    v.init(undefined, cx);
+    host.props = {};
+    host.clicks.clear();
+    v.render(cx);
+    host.clicks.get("dlg-cancel")!({}, cx);
+    expect(host.closed).toEqual(["ov7"]);
+  });
+
   test("a dialog closed without a choice replies cancel to its editor", async () => {
     host.props = { role: "dialog", to: "k1", req: "r1", file: "/p/a.txt" };
     const v = makeView();

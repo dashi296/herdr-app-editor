@@ -17,6 +17,11 @@ export function deferred<T>(): Deferred<T> {
 }
 
 /** Lets pending promise callbacks run. */
+/** Runs pending tasks until cond() holds, or gives up after `rounds` turns. */
+export async function until(cond: () => boolean, rounds = 1000): Promise<void> {
+  for (let i = 0; i < rounds && !cond(); i++) await new Promise((r) => setTimeout(r, 0));
+}
+
 export const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
 };
@@ -53,6 +58,38 @@ export class FakeEditorState {
   }
 }
 
+/** gpui-base InputState: tests type into it and press Enter. */
+export class FakeInputState {
+  static created: FakeInputState[] = [];
+  text = "";
+  focused = 0;
+  handlers: Record<string, (e: unknown, cx: unknown) => void> = {};
+  constructor(public opts: Record<string, unknown>) {}
+  static new(opts: Record<string, unknown> = {}) {
+    const s = new FakeInputState(opts);
+    FakeInputState.created.push(s);
+    return s;
+  }
+  value() {
+    return this.text;
+  }
+  on(event: string, fn: (e: unknown, cx: unknown) => void) {
+    this.handlers[event] = fn;
+  }
+  focus() {
+    this.focused++;
+  }
+  /** The person types: the text changes and "change" fires. */
+  type(text: string, cx: unknown) {
+    this.text = text;
+    this.handlers.change?.(null, cx);
+  }
+  /** Enter in the field; `secondary` is cmd on macOS, ctrl elsewhere (gpui-base InputEvent). */
+  submit(cx: unknown, event: { secondary?: boolean } = {}) {
+    this.handlers.submit?.(event, cx);
+  }
+}
+
 /**
  * Any element builder: every method returns the builder again. `.id(x)` followed by
  * `.on_click(fn)` records fn in host.clicks[x], so tests can press a rendered button
@@ -66,6 +103,7 @@ const element = (): unknown => {
       (...args: unknown[]) => {
         if (key === "id") id = String(args[0]);
         else if (key === "on_click" && id !== null) host.clicks.set(id, args[0] as Click);
+        else if (key === "child" && typeof args[0] === "string") host.texts.push(args[0]);
         return self;
       },
     apply: () => element(),
@@ -88,6 +126,12 @@ export interface FakeSpace {
   machine?: string | null;
   tabs: { id: string; active: boolean }[];
 }
+export interface ExecOptions {
+  cwd?: string;
+  on?: string | null;
+  timeout?: number;
+}
+
 export interface ExecResult {
   code: number;
   stdout: string;
@@ -109,12 +153,23 @@ export const host = {
   panes: [] as FakePane[],
   spaces: [] as FakeSpace[],
   focused: null as { pane: string | null; cwd?: string; terminal?: string } | null,
-  exec: async (_cmd: string, _args: string[]): Promise<ExecResult> => ({ code: 1, stdout: "", stderr: "" }),
+  exec: async (_cmd: string, _args: string[], _opts?: ExecOptions): Promise<ExecResult> => ({
+    code: 1,
+    stdout: "",
+    stderr: "",
+  }),
   watches: [] as FakeWatch[],
   /** Click handlers by element id. Builders only add to it: clear it before a render to see one screen's buttons. */
   clicks: new Map<string, Click>(),
   appHome: "/fake-home",
   platform: "macos",
+  /** Every string passed to .child(): what a render shows. Clear it before the render you check. */
+  texts: [] as string[],
+  keys: [] as { section: string; keys: string; action: string }[],
+  checking: false,
+  /** readTextFile serves these; every path asked for is recorded in reads. */
+  files: new Map<string, string>(),
+  reads: [] as string[],
 };
 
 export function reset() {
@@ -132,7 +187,13 @@ export function reset() {
   host.clicks.clear();
   host.appHome = "/fake-home";
   host.platform = "macos";
+  host.texts = [];
+  host.keys = [];
+  host.checking = false;
+  host.files = new Map();
+  host.reads = [];
   FakeEditorState.created = [];
+  FakeInputState.created = [];
 }
 
 function fakeWatch(): FakeWatch {
@@ -155,6 +216,8 @@ export function install() {
   mock.module("gpui-base", () => ({
     Editor: { new: element },
     EditorState: FakeEditorState,
+    InputState: FakeInputState,
+    Input: { new: element },
     h_flex: element,
     v_flex: element,
   }));
@@ -179,11 +242,15 @@ export function install() {
     settings: () => ({ dark: true }),
     theme: () => ({}),
     window: () => ({ active: true, platform: host.platform }),
-    exec: (cmd: string, args: string[]) => host.exec(cmd, args),
+    exec: (cmd: string, args: string[], opts?: ExecOptions) => host.exec(cmd, args, opts),
     watchFolder: fakeWatch,
     appHome: () => host.appHome,
-    // Used by src/adapters; not exercised by the tests yet.
-    readTextFile: async () => null,
+    keys: () => host.keys,
+    checking: () => host.checking,
+    readTextFile: async (path: string) => {
+      host.reads.push(path);
+      return host.files.get(path) ?? null;
+    },
     writeTextFile: async () => {},
   }));
 }

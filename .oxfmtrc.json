@@ -1,5 +1,14 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "printWidth": 120,
-  "ignorePatterns": ["mods/**", "spikes/**", "vendor/**", "layouts/**", "docs/**", "types/**", "bun.lock", "*.md"]
+  "ignorePatterns": [
+    "editor/mods/**",
+    "files/mods/**",
+    "spikes/**",
+    "vendor/**",
+    "docs/**",
+    "types/**",
+    "bun.lock",
+    "*.md"
+  ]
 }

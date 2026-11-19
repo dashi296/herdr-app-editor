@@ -1,17 +1,16 @@
 // The herdr-app-editor changes to the forked Files panel (src/entries/editor-files.js): which folder
 // it shows while an editor has focus, sending clicked files to an editor, and releasing folder watches.
 import { beforeEach, describe, expect, test } from "bun:test";
-import { MOD_EDITOR, SHARED_KEY } from "../../src/core/names";
-import { decodeCommand } from "../../src/core/routing/routing";
-import { host, install, makeCx, reset, settle, type FakeCx, type FakePane } from "./host";
+import { MOD_EDITOR } from "../../src/core/names";
+import { FakeEditorState, host, install, makeCx, reset, settle, type FakeCx, type FakePane } from "./host";
 
 install();
 // @ts-expect-error -- untyped JavaScript forked from upstream; FilesView below lists what the tests use
-const { default: Files } = await import("../../src/entries/editor-files.js");
+const { default: Files, EDITOR_CHECK_MS } = await import("../../src/entries/editor-files.js");
 
 interface FilesView {
   root: string | undefined;
-  splitting?: boolean;
+  opener?: { splitting: boolean };
   init(props: unknown, cx: FakeCx): void;
   refresh(cx: FakeCx): void;
   openInEditor(path: string, cx: FakeCx, newPane?: boolean): void;
@@ -30,13 +29,6 @@ function start(): FilesView {
   return v;
 }
 const commands = () => host.run.map((r) => r.command);
-const opens = () =>
-  host.run
-    .map((r) => decodeCommand(r.command.slice(MOD_EDITOR.length + 1)))
-    .filter((c) => c.verb === "open")
-    .map((c) => c.payload as { to: string; file: string; on: string | null });
-const registry = () =>
-  ((host.shared.get(SHARED_KEY) as { registry?: Record<string, { pane: string; tab: string }> }) ?? {}).registry ?? {};
 
 beforeEach(() => {
   reset();
@@ -71,83 +63,64 @@ describe("folder", () => {
   });
 });
 
-describe("opening files in the editor", () => {
-  test("goes to the latest focused editor in this tab", () => {
-    host.panes = [TERMINAL, { pane: "e1", tab: "t1", mod: MOD_EDITOR }, { pane: "e2", tab: "t1", mod: MOD_EDITOR }];
-    host.shared.set(SHARED_KEY, {
-      registry: {
-        k1: { pane: "e1", tab: "t1", lastFocus: 1 },
-        k2: { pane: "e2", tab: "t1", lastFocus: 2 },
-      },
-    });
+describe("opening files", () => {
+  // Which editor pane a file goes to is EditorOpener's job (tests/ui/opener.test.ts).
+  const MOD_JSON = "/fake-home/mods/herdr-app-editor/mod.json";
+
+  test("with the editor mod, a click opens the editor", async () => {
+    host.files.set(MOD_JSON, "{}");
+    host.files.set("/work/app/a.ts", "a");
     const v = start();
-    v.openInEditor("src/a.ts", cx);
-    expect(host.run[0]).toEqual({ command: "pane.focus", args: { pane: "e2" } });
-    expect(opens()).toEqual([expect.objectContaining({ to: "k2", file: "/work/app/src/a.ts", on: null })]);
+    v.openInEditor("a.ts", cx);
+    await settle();
+    const split = host.run.find((r) => r.command === "pane.split")!.args as { mod: string; props: { file: string } };
+    expect(split).toMatchObject({ mod: MOD_EDITOR, props: { file: "/work/app/a.ts" } });
+    expect(FakeEditorState.created).toEqual([]);
   });
 
-  test("an editor in another tab is not used: a new one is split next to the focused pane and registered", async () => {
-    host.panes = [TERMINAL, { pane: "e9", tab: "t9", mod: MOD_EDITOR }];
-    host.shared.set(SHARED_KEY, { registry: { k9: { pane: "e9", tab: "t9", lastFocus: 1 } } });
+  test("without the editor mod, a click shows the read-only preview", async () => {
+    host.files.set("/work/app/a.ts", "preview me");
+    const v = start();
+    v.openInEditor("a.ts", cx);
+    await settle();
+    expect(commands()).toEqual([]);
+    expect(FakeEditorState.created.at(-1)).toMatchObject({ opts: { readonly: true, value: "preview me" } });
+  });
+
+  test("without the editor mod, a click made before the folder changed previews nothing from the new folder", async () => {
+    host.files.set("/work/app/a.ts", "old");
+    host.files.set("/work/other/a.ts", "new");
+    const v = start();
+    v.openInEditor("a.ts", cx);
+    // The person switches to another folder before the install check returns.
+    host.panes = [{ ...TERMINAL, cwd: "/work/other" }];
+    v.refresh(cx);
+    await settle();
+    expect(host.reads).not.toContain("/work/other/a.ts");
+  });
+
+  test("without the editor mod, a click made before switching to the same path on another machine previews nothing", async () => {
+    host.files.set("/work/app/a.ts", "local");
+    const v = start();
+    v.openInEditor("a.ts", cx);
+    host.spaces = [{ id: "s1", active: true, folder: "/space", machine: "vps", tabs: [{ id: "t1", active: true }] }];
+    v.refresh(cx);
+    await settle();
+    expect(FakeEditorState.created).toEqual([]);
+  });
+
+  test("the check is cached for EDITOR_CHECK_MS", async () => {
+    host.files.set(MOD_JSON, "{}");
     host.onRun = (command) => {
       if (command === "pane.split") host.panes = [...host.panes, { pane: "e1", tab: "t1", mod: MOD_EDITOR }];
     };
     const v = start();
     v.openInEditor("a.ts", cx);
-    const split = host.run.find((r) => r.command === "pane.split")!.args as {
-      pane: string;
-      direction: string;
-      mod: string;
-      props: { key: string; file: string; on: null };
-    };
-    expect(split).toMatchObject({ pane: "p1", direction: "right", mod: MOD_EDITOR });
-    expect(split.props).toMatchObject({ file: "/work/app/a.ts", on: null });
     await settle();
-    expect(registry()[split.props.key]).toMatchObject({ pane: "e1", tab: "t1" });
-    expect(registry().k9).toBeDefined();
-    expect(v.splitting).toBe(false);
-  });
-
-  test("clicks during a split wait for it, then go to the new editor in order", async () => {
-    let created = false;
-    host.onRun = (command) => {
-      if (command === "pane.split") {
-        if (created) throw new Error("second split");
-        created = true;
-        host.panes = [...host.panes, { pane: "e1", tab: "t1", mod: MOD_EDITOR }];
-      }
-    };
-    const v = start();
-    v.openInEditor("a.ts", cx);
     v.openInEditor("b.ts", cx);
-    v.openInEditor("c.ts", cx);
-    expect(commands().filter((c) => c === "pane.split")).toHaveLength(1);
-    expect(opens()).toEqual([]);
     await settle();
-    const key = Object.keys(registry())[0]!;
-    expect(opens().map((o) => [o.to, o.file])).toEqual([
-      [key, "/work/app/b.ts"],
-      [key, "/work/app/c.ts"],
-    ]);
-  });
-
-  test("a failed split lets the next click try again", () => {
-    host.onRun = (command) => {
-      if (command === "pane.split") throw new Error("no room");
-    };
-    const v = start();
-    expect(() => v.openInEditor("a.ts", cx)).toThrow("no room");
-    expect(v.splitting).toBe(false);
-    expect(() => v.openInEditor("b.ts", cx)).toThrow("no room");
-    expect(commands().filter((c) => c === "pane.split")).toHaveLength(2);
-  });
-
-  test("newPane splits even when an editor exists", () => {
-    host.panes = [TERMINAL, { pane: "e1", tab: "t1", mod: MOD_EDITOR }];
-    host.shared.set(SHARED_KEY, { registry: { k1: { pane: "e1", tab: "t1", lastFocus: 1 } } });
-    const v = start();
-    v.openInEditor("a.ts", cx, true);
-    expect(commands()).toEqual(["pane.split"]);
+    expect(EDITOR_CHECK_MS).toBe(5000);
+    expect(host.reads.filter((r) => r === MOD_JSON)).toHaveLength(1);
   });
 });
 

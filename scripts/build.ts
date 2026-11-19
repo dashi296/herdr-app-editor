@@ -1,14 +1,18 @@
-// Builds mods/<name>/main.js from src/entries/*.ts and checks the output (plan §1 ビルド, spike S1).
+// Builds <package>/mods/<name>/main.js from src/entries/* and checks the output (plan §1 ビルド, spike S1).
+// Each package folder is one herdr.dev/mods listing (#29): editor/ (the editor and quick open) and
+// files/ (the Files fork).
 //   bun run scripts/build.ts
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LAYOUT_NAME, MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, isValidModName } from "../src/core/names";
+import { MOD_EDITOR, MOD_FILES, MOD_OPEN, isValidModName } from "../src/core/names";
 
 const HOST = ["herdr", "gpui-kit", "gpui-base", "fs/promises"];
 const ROOT = join(import.meta.dir, "..");
 
 interface ModSpec {
   name: string;
+  /** The package folder the mod ships in. */
+  pkg: "editor" | "files";
   entry: string;
   manifest: Record<string, unknown>;
   assets?: [string, string][];
@@ -27,14 +31,20 @@ function leadingComment(source: string): string {
 }
 
 const mods: ModSpec[] = [
-  { name: MOD_EDITOR, entry: "src/entries/editor.ts", manifest: { place: "none", focusable: true } },
+  { name: MOD_EDITOR, pkg: "editor", entry: "src/entries/editor.ts", manifest: { place: "none", focusable: true } },
   {
-    name: MOD_UNINSTALL,
-    entry: "src/entries/editor-uninstall.ts",
-    manifest: { place: "none", overlay: { width: 520, height: 260 } },
+    name: MOD_OPEN,
+    pkg: "editor",
+    entry: "src/entries/editor-open.ts",
+    manifest: {
+      place: "none",
+      focusable: true,
+      overlay: { kind: "popup", at: "top", offset: 40, width: 640, height: 0.6 },
+    },
   },
   {
     name: MOD_FILES,
+    pkg: "files",
     entry: "src/entries/editor-files.js",
     manifest: { place: "none" },
     keepHeader: true,
@@ -62,7 +72,7 @@ for (const mod of mods) {
     failed.push(`invalid mod name ${mod.name}`);
     continue;
   }
-  const out = join(ROOT, "mods", mod.name);
+  const out = join(ROOT, mod.pkg, "mods", mod.name);
   mkdirSync(out, { recursive: true });
   const result = await Bun.build({
     entrypoints: [join(ROOT, mod.entry)],
@@ -91,33 +101,8 @@ for (const mod of mods) {
   for (const [from, to] of mod.assets ?? []) cpSync(join(ROOT, from), join(out, to));
 }
 
-// layouts/<LAYOUT_NAME>.json: Herdr's main layout with the Files block pointing at the fork.
-{
-  const layout = JSON.parse(readFileSync(join(ROOT, "vendor/herdr-layouts/main.json"), "utf8"));
-  let replaced = 0;
-  const walk = (n: unknown): void => {
-    if (Array.isArray(n)) {
-      n.forEach(walk);
-      return;
-    }
-    if (!n || typeof n !== "object") return;
-    const o = n as Record<string, unknown>;
-    const c = o.content as { mod?: string } | undefined;
-    if (c && c.mod === "files") {
-      c.mod = MOD_FILES;
-      replaced++;
-    }
-    Object.values(o).forEach(walk);
-  };
-  walk(layout);
-  if (replaced !== 1) failed.push(`layout: expected one Files block, found ${replaced}`);
-  layout.cloned_from = { name: "main", version: "0.1.16 (identical in 0.1.15 and herdr-app 5216e6f)" };
-  mkdirSync(join(ROOT, "layouts"), { recursive: true });
-  writeFileSync(join(ROOT, "layouts", `${LAYOUT_NAME}.json`), JSON.stringify(layout, null, 2) + "\n");
-}
-
 if (failed.length) {
   console.error(failed.join("\n"));
   process.exit(1);
 }
-console.log(`built ${mods.map((m) => `mods/${m.name}`).join(", ")}, layouts/${LAYOUT_NAME}.json`);
+console.log(`built ${mods.map((m) => `${m.pkg}/mods/${m.name}`).join(", ")}`);

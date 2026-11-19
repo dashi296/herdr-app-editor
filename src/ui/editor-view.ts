@@ -6,6 +6,7 @@ import * as herdr from "herdr";
 import {
   closeOverlay,
   focused,
+  keys,
   nextCommand,
   openOverlay,
   panes,
@@ -40,7 +41,8 @@ import type { Registry as ExtensionRegistry } from "../core/extensions/registry"
 import { highlightFor, languageFor } from "../core/language/language";
 import { BUILTIN_THEMES } from "../core/theme/builtin";
 import { HERDR_THEME, nextTheme, pickTheme, resolveSyntax, themeNames, type EditorTheme } from "../core/theme/theme";
-import { MOD_EDITOR, SHARED_KEY } from "../core/names";
+import { MOD_EDITOR, MOD_OPEN, SHARED_KEY } from "../core/names";
+import { palette, type Palette } from "./palette";
 import {
   acceptOpen,
   decodeCommand,
@@ -50,6 +52,7 @@ import {
   handleReply,
   idleRouting,
   interacted,
+  newPaneAfterSplit,
   pruneRegistry,
   type Choice,
   type Effect,
@@ -84,7 +87,7 @@ interface SharedState {
   theme?: string;
 }
 
-type Screen = { kind: "loading" } | { kind: "message"; text: string } | { kind: "ready" };
+type Screen = { kind: "loading" } | { kind: "message"; text: string } | { kind: "empty" } | { kind: "ready" };
 
 const POLL_LOCAL_MS = 3000,
   POLL_REMOTE_MS = 10000;
@@ -108,35 +111,6 @@ function readShared(): SharedState {
 
 function timerFrom(cx: Context): Timer {
   return { now: () => Date.now(), after: (ms, fn) => cx.timer.after(ms, () => fn()) };
-}
-
-type Hex = `#${string}`;
-const PALETTE_KEYS = [
-  "background",
-  "foreground",
-  "border",
-  "dim",
-  "muted",
-  "accent",
-  "blocked",
-  "raised",
-  "surface",
-  "popover",
-  "input",
-  "hover",
-] as const;
-type Palette = Record<(typeof PALETTE_KEYS)[number], Hex>;
-
-/** Theme colors the editor uses, with fallbacks so a missing name never breaks rendering. */
-function palette(): Palette {
-  const t = theme();
-  const fg = (t.foreground ?? "#cccccc") as Hex;
-  const out = {} as Palette;
-  for (const k of PALETTE_KEYS)
-    out[k] = (t[k] ?? (k === "background" || k === "surface" || k === "popover" ? "#1e1e1e" : fg)) as Hex;
-  if (!t.input && t.border) out.input = t.border as Hex;
-  if (!t.hover && t.raised) out.hover = t.raised as Hex;
-  return out;
 }
 
 const isDark = () => settings().dark !== false;
@@ -183,31 +157,44 @@ export abstract class EditorView extends View {
   private seen: string[] = [];
   private polling = false;
   private lastPoll = 0;
+  /** From quick open's split props: the editor panes that existed before it, and its tab. */
+  private splitBy: { before: string[]; tab: string } | null = null;
   // dialog role
-  private dialogProps: { to: string; req: string; file: string } | null = null;
+  private dialogProps: { to: string; req: string; file: string; overlay: string } | null = null;
   private choice: Choice | null = null;
 
   override init(_props: unknown, cx: AsyncContext): void {
     const p = (props() ?? {}) as Record<string, unknown>;
     if (p.role === "dialog") {
       this.role = "dialog";
-      this.dialogProps = { to: String(p.to), req: String(p.req), file: String(p.file ?? "") };
+      this.dialogProps = {
+        to: String(p.to),
+        req: String(p.req),
+        file: String(p.file ?? ""),
+        overlay: String(p.overlay), // read now: props() can be empty later on the device
+      };
       this.handle = cx.focus_handle();
       this.handle.focus();
       return;
     }
     this.handle = cx.focus_handle();
-    if (isChecking() || typeof p.key !== "string") {
-      // `herdr-app check`, or a copy placed without props: render only, no side effects (S1-3).
-      this.screen = { kind: "message", text: "Open a file from the Files panel." };
+    if (isChecking()) {
+      // `herdr-app check`: render only, no side effects (S1-3).
+      this.screen = { kind: "empty" };
       return;
     }
-    this.key = p.key;
+    // A pane opened without a key (by an agent, another mod, or by hand) gets one for this run:
+    // its drafts are still found by file, but after a restart it reopens props.file (#29).
+    this.key =
+      typeof p.key === "string" ? p.key : `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     this.deps = this.makeDeps();
     const t = this.deps.extensions.themes(BUILTIN_THEMES);
     this.themes = t.themes;
     this.themeNotes = t.messages;
     const initial = { file: typeof p.file === "string" ? p.file : null, on: typeof p.on === "string" ? p.on : null };
+    // Read now: on the device props() is empty by the time the first load ends.
+    this.splitBy =
+      Array.isArray(p.before) && typeof p.tab === "string" ? { before: p.before.map(String), tab: p.tab } : null;
     cx.spawn(async (cx) => {
       let target = initial;
       const seq = this.openSeq;
@@ -220,7 +207,8 @@ export abstract class EditorView extends View {
       // A file opened from Files while this was loading wins over the remembered one (review).
       if (seq !== this.openSeq) return;
       if (target.file) await this.openFile(target.file, target.on, cx);
-      else this.screen = { kind: "message", text: "Open a file from the Files panel." };
+      else this.screen = { kind: "empty" };
+      this.claimNewPane();
       cx.notify();
     });
     cx.spawn(async (cx) => {
@@ -641,15 +629,40 @@ export abstract class EditorView extends View {
     }
   }
 
+  /**
+   * After the first load, for a pane split by quick open (props `before` and `tab`): nobody else is
+   * left to register it, and it cannot learn its own pane id. Its pane is the one editor pane in
+   * that tab that was not there before the split; with more than one candidate it registers nothing
+   * and waits for its editor to get focus (register()).
+   */
+  private claimNewPane() {
+    const by = this.splitBy;
+    if (!by) return;
+    // The split props stay with the pane across restarts: claim only once, and never a pane that
+    // another key already names.
+    const registry = pruneRegistry(readShared().registry ?? {}, panes(), MOD_EDITOR);
+    if (registry[this.key]) return;
+    const pane = newPaneAfterSplit(by.before, panes(), MOD_EDITOR, by.tab);
+    if (pane && !Object.values(registry).some((e) => e.pane === pane)) this.writeEntry(pane, by.tab);
+  }
+
   /** Records this pane as the latest focused editor. The "focus" command reaches the focused copy. */
   private register() {
-    const f = focused();
-    const pane = f?.pane;
-    if (!pane || !panes().some((p) => p.pane === pane && p.mod === MOD_EDITOR)) return;
-    const me = panes().find((p) => p.pane === pane)!;
+    const pane = focused()?.pane;
+    const me = pane ? panes().find((p) => p.pane === pane && p.mod === MOD_EDITOR) : undefined;
+    if (me) this.writeEntry(me.pane, me.tab);
+  }
+
+  /** registry[this.key] = pane, dropping any other key that names the same pane (a key a keyless
+   *  pane had before a restart or reload would otherwise get the next file). */
+  private writeEntry(pane: string, tab: string) {
     const s = readShared();
-    const registry = pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR);
-    registry[this.key] = { pane, tab: me.tab, lastFocus: Date.now() };
+    const registry = Object.fromEntries(
+      Object.entries(pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR)).filter(
+        ([k, e]) => k === this.key || e.pane !== pane,
+      ),
+    );
+    registry[this.key] = { pane, tab, lastFocus: Date.now() };
     setShared(SHARED_KEY, { ...s, registry });
   }
 
@@ -737,6 +750,7 @@ export abstract class EditorView extends View {
       .on_mouse_down("left", () => {
         if (!this.code) this.handle?.focus();
       });
+    if (this.screen.kind === "empty") return root.child(this.renderEmpty(t));
     if (this.screen.kind !== "ready" || !this.doc || !this.code) {
       const text = this.screen.kind === "message" ? this.screen.text : "Loading…";
       return root.child(div().p(16).text_color(t.dim).child(text));
@@ -842,6 +856,29 @@ export abstract class EditorView extends View {
     return root.child(header).children(banners).child(Editor.new(this.code).flex_1().min_h(0));
   }
 
+  /** No file: a button that opens the quick open overlay, and the key bound to it, if any. */
+  private renderEmpty(t: Palette): Element {
+    const bound = keys().find((k) => k.action === `mod.open:${MOD_OPEN}`)?.keys;
+    return v_flex()
+      .p(16)
+      .gap(10)
+      .items_start()
+      .child(div().text_color(t.dim).child("No file open."))
+      .child(
+        h_flex()
+          .gap(8)
+          .items_center()
+          .child(
+            this.button("open-file", "Open file…", t, () => {
+              // Clicking focused this pane: record it so the file chosen next comes back here.
+              this.register();
+              run("mod.open", { name: MOD_OPEN });
+            }),
+          )
+          .children(bound ? [div().text_size(12).text_color(t.dim).child(bound)] : []),
+      );
+  }
+
   private button(id: string, label: string, t: Palette, onClick: (cx: Context) => void) {
     return h_flex()
       .id(id)
@@ -861,7 +898,7 @@ export abstract class EditorView extends View {
     const d = this.dialogProps!;
     const choose = (c: Choice) => (_cx: Context) => {
       this.choice = c;
-      closeOverlay(String((props() as { overlay?: string }).overlay));
+      closeOverlay(d.overlay);
     };
     return v_flex()
       .id("editor-dialog")

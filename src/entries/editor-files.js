@@ -3,42 +3,30 @@
 // Modified from herdrdev/herdr-app defaults/mods/files/main.js (5216e6f), Apache-2.0
 // (LICENSE next to the built main.js; vendor/herdr-files/LICENSE in the repository).
 // Changes by herdr-app-editor, marked "herdr-app-editor:" in the source:
-//   - clicking a file opens it in the editor mod instead of the read-only preview (plan §3)
+//   - clicking a file opens it in the editor mod when that mod is installed; otherwise the read-only
+//     preview as upstream (plan §3, #29)
 //   - icon paths point at this mod's own folder
 //   - while an editor pane has focus, the tree follows a terminal in the same tab
 //   - the pending folder watch is cancelled when the folder changes or the copy closes
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import {
-  spaces,
-  panes,
-  focused,
-  exec,
-  readTextFile,
-  watchFolder,
-  theme,
-  settings,
-  window,
-  run,
-  shared,
-  setShared,
-} from "herdr";
-// herdr-app-editor: routing helpers and shared names
-import { MOD_EDITOR, MOD_FILES, SHARED_KEY } from "../core/names";
-import { encodeCommand, newPaneAfterSplit, pickTarget, pruneRegistry } from "../core/routing/routing";
+import { appHome, exec, readTextFile, watchFolder, theme, settings, window } from "herdr";
+// herdr-app-editor: shared names, the folder rule and opening files in the editor
+import { MOD_EDITOR, MOD_FILES } from "../core/names";
+import { activeTab, currentLocation } from "../ui/location";
+import { EditorOpener } from "../ui/opener";
 
-function location() {
-  const space = spaces().find((s) => s.active),
-    f = focused();
-  let pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
-  // herdr-app-editor: an editor pane has no folder of its own; follow a terminal in the same tab
-  // instead of falling back to another folder (the tree would jump away while editing).
-  if (pane && pane.mod === MOD_EDITOR) pane = panes().find((p) => p.tab === pane.tab && p.cwd) ?? pane;
-  const on =
-    f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : (space?.machine ?? null);
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on, space: space?.id };
+const key = () => JSON.stringify(currentLocation());
+
+// herdr-app-editor: whether the editor mod is installed, asked again at most this often (#29).
+export const EDITOR_CHECK_MS = 5000;
+async function editorInstalled() {
+  try {
+    return (await readTextFile(`${appHome()}/mods/${MOD_EDITOR}/mod.json`)) !== null;
+  } catch {
+    return false; // unreadable: treat as not installed
+  }
 }
-const key = () => JSON.stringify(location());
 const LANG = {
   ts: "js",
   tsx: "js",
@@ -153,7 +141,7 @@ export default class Files extends View {
   }
 
   refresh(cx) {
-    const { cwd, on } = location(),
+    const { cwd, on } = currentLocation(),
       next = key();
     if (next !== this.context?.key) {
       if (this.context) this.saved.set(this.context.key, { folders: this.folders, file: this.file });
@@ -250,70 +238,23 @@ export default class Files extends View {
     cx.notify();
   }
 
-  // herdr-app-editor: send the file to the latest focused editor in this tab, or split a new one.
+  // herdr-app-editor: send the file to the latest focused editor in this tab, or split a new one
+  // (src/ui/opener.ts). The request is captured at click time, so a queued click opens what was clicked.
+  // Without the editor mod, the click shows the read-only preview as upstream does (#29).
   openInEditor(path, cx, newPane = false) {
-    const space = spaces().find((s) => s.active);
-    const tab = space?.tabs.find((t) => t.active)?.id;
+    const tab = activeTab();
     if (!tab) return;
-    this.openFileInEditor({ file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane }, cx);
-  }
-
-  // `request` is captured at click time (absolute file, machine, tab), so a queued click opens what was clicked.
-  openFileInEditor(request, cx) {
-    // While a split is being registered, a second split would make the new pane ambiguous
-    // (newPaneAfterSplit needs exactly one). Queue every click and replay them in order.
-    if (this.splitting) {
-      (this.queuedOpens ??= []).push(request);
-      return;
-    }
-    const { file, on, tab, newPane } = request;
-    const all = panes();
-    const state = shared(SHARED_KEY) ?? {};
-    const registry = pruneRegistry(state.registry ?? {}, all, MOD_EDITOR);
-    const target = newPane ? null : pickTarget(registry, all, MOD_EDITOR, tab);
-    const req = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    if (target) {
-      // pane.focus first: FIFO delivery makes the editor shown when "open" arrives (spike S5).
-      run("pane.focus", { pane: target.pane });
-      run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req, file, on, sentAt: Date.now() })}`);
-      return;
-    }
-    const inTab = all.filter((p) => p.tab === tab);
-    const f = focused();
-    const base = inTab.find((p) => p.pane === f?.pane) ?? inTab[0];
-    if (!base) return;
-    const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
-    const key = `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    this.splitting = true;
-    try {
-      run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key, file, on } });
-    } catch (e) {
-      this.splitting = false;
-      this.drainQueuedOpens(cx);
-      throw e;
-    }
-    // The editor cannot learn its own pane at init (spike S5 result 6): register it from here.
+    const request = { file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane };
+    const context = this.context;
     cx.spawn(async (cx) => {
-      try {
-        for (let i = 0; i < 30; i++) {
-          await cx.sleep(100);
-          const pane = newPaneAfterSplit(before, panes(), MOD_EDITOR, tab);
-          if (!pane) continue;
-          const now = shared(SHARED_KEY) ?? {};
-          const reg = pruneRegistry(now.registry ?? {}, panes(), MOD_EDITOR);
-          reg[key] = { pane, tab, lastFocus: Date.now() };
-          setShared(SHARED_KEY, { ...now, registry: reg });
-          return;
-        }
-      } finally {
-        this.splitting = false;
-        this.drainQueuedOpens(cx);
-      }
+      const now = Date.now();
+      if (!this.editorCheck || now - this.editorCheck.at >= EDITOR_CHECK_MS)
+        this.editorCheck = { at: now, installed: await editorInstalled() };
+      if (this.editorCheck.installed) (this.opener ??= new EditorOpener()).open(request, cx);
+      // Not a same-named file of a folder, space or machine shown since the click.
+      else if (this.context === context) this.show(path, cx);
+      cx.notify();
     });
-  }
-
-  drainQueuedOpens(cx) {
-    while (this.queuedOpens?.length && !this.splitting) this.openFileInEditor(this.queuedOpens.shift(), cx);
   }
 
   show(path, cx) {

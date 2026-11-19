@@ -3,5 +3,5 @@
   "plugins": ["typescript", "unicorn", "oxc"],
   "categories": { "correctness": "error" },
   "env": { "es2022": true },
-  "ignorePatterns": ["mods/**", "spikes/**", "vendor/**", "layouts/**", "docs/**", "types/**"]
+  "ignorePatterns": ["editor/mods/**", "files/mods/**", "spikes/**", "vendor/**", "docs/**", "types/**"]
 }
