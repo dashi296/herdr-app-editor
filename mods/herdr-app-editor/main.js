@@ -458,7 +458,7 @@ import {
   shared,
   setShared,
   spaces,
-  theme,
+  theme as theme2,
   window as window2
 } from "herdr";
 
@@ -687,6 +687,35 @@ var BUILTIN_THEMES = [one_dark_default, dracula_default, github_light_default, n
   return r.theme;
 });
 
+// src/ui/palette.ts
+import { theme } from "herdr";
+var PALETTE_KEYS = [
+  "background",
+  "foreground",
+  "border",
+  "dim",
+  "muted",
+  "accent",
+  "blocked",
+  "raised",
+  "surface",
+  "popover",
+  "input",
+  "hover"
+];
+function palette() {
+  const t = theme();
+  const fg = t.foreground ?? "#cccccc";
+  const out = {};
+  for (const k of PALETTE_KEYS)
+    out[k] = t[k] ?? (k === "background" || k === "surface" || k === "popover" ? "#1e1e1e" : fg);
+  if (!t.input && t.border)
+    out.input = t.border;
+  if (!t.hover && t.raised)
+    out.hover = t.raised;
+  return out;
+}
+
 // src/core/routing/routing.ts
 var liveEditors = (panes, mod) => new Map(panes.filter((p) => p.mod === mod).map((p) => [p.pane, p.tab]));
 function pruneRegistry(reg, panes, mod) {
@@ -910,36 +939,10 @@ function readShared() {
 function timerFrom(cx) {
   return { now: () => Date.now(), after: (ms, fn) => cx.timer.after(ms, () => fn()) };
 }
-var PALETTE_KEYS = [
-  "background",
-  "foreground",
-  "border",
-  "dim",
-  "muted",
-  "accent",
-  "blocked",
-  "raised",
-  "surface",
-  "popover",
-  "input",
-  "hover"
-];
-function palette() {
-  const t = theme();
-  const fg = t.foreground ?? "#cccccc";
-  const out = {};
-  for (const k of PALETTE_KEYS)
-    out[k] = t[k] ?? (k === "background" || k === "surface" || k === "popover" ? "#1e1e1e" : fg);
-  if (!t.input && t.border)
-    out.input = t.border;
-  if (!t.hover && t.raised)
-    out.hover = t.raised;
-  return out;
-}
 var isDark = () => settings().dark !== false;
 function chosenTheme(themes) {
   const picked = pickTheme(themes, readShared().theme, isDark());
-  return { name: picked?.name ?? HERDR_THEME, syntax: resolveSyntax(picked, theme()) };
+  return { name: picked?.name ?? HERDR_THEME, syntax: resolveSyntax(picked, theme2()) };
 }
 
 class EditorView extends View {

@@ -53,6 +53,37 @@ export class FakeEditorState {
   }
 }
 
+/** gpui-base InputState: tests type into it and press Enter. */
+export class FakeInputState {
+  static created: FakeInputState[] = [];
+  text = "";
+  focused = 0;
+  handlers: Record<string, (e: unknown, cx: unknown) => void> = {};
+  constructor(public opts: Record<string, unknown>) {}
+  static new(opts: Record<string, unknown> = {}) {
+    const s = new FakeInputState(opts);
+    FakeInputState.created.push(s);
+    return s;
+  }
+  value() {
+    return this.text;
+  }
+  on(event: string, fn: (e: unknown, cx: unknown) => void) {
+    this.handlers[event] = fn;
+  }
+  focus() {
+    this.focused++;
+  }
+  /** The person types: the text changes and "change" fires. */
+  type(text: string, cx: unknown) {
+    this.text = text;
+    this.handlers.change?.(null, cx);
+  }
+  submit(cx: unknown) {
+    this.handlers.submit?.(null, cx);
+  }
+}
+
 /**
  * Any element builder: every method returns the builder again. `.id(x)` followed by
  * `.on_click(fn)` records fn in host.clicks[x], so tests can press a rendered button
@@ -89,6 +120,12 @@ export interface FakeSpace {
   machine?: string | null;
   tabs: { id: string; active: boolean }[];
 }
+export interface ExecOptions {
+  cwd?: string;
+  on?: string | null;
+  timeout?: number;
+}
+
 export interface ExecResult {
   code: number;
   stdout: string;
@@ -110,7 +147,11 @@ export const host = {
   panes: [] as FakePane[],
   spaces: [] as FakeSpace[],
   focused: null as { pane: string | null; cwd?: string; terminal?: string } | null,
-  exec: async (_cmd: string, _args: string[]): Promise<ExecResult> => ({ code: 1, stdout: "", stderr: "" }),
+  exec: async (_cmd: string, _args: string[], _opts?: ExecOptions): Promise<ExecResult> => ({
+    code: 1,
+    stdout: "",
+    stderr: "",
+  }),
   watches: [] as FakeWatch[],
   /** Click handlers by element id. Builders only add to it: clear it before a render to see one screen's buttons. */
   clicks: new Map<string, Click>(),
@@ -141,6 +182,7 @@ export function reset() {
   host.keys = [];
   host.checking = false;
   FakeEditorState.created = [];
+  FakeInputState.created = [];
 }
 
 function fakeWatch(): FakeWatch {
@@ -163,6 +205,8 @@ export function install() {
   mock.module("gpui-base", () => ({
     Editor: { new: element },
     EditorState: FakeEditorState,
+    InputState: FakeInputState,
+    Input: { new: element },
     h_flex: element,
     v_flex: element,
   }));
@@ -187,7 +231,7 @@ export function install() {
     settings: () => ({ dark: true }),
     theme: () => ({}),
     window: () => ({ active: true, platform: host.platform }),
-    exec: (cmd: string, args: string[]) => host.exec(cmd, args),
+    exec: (cmd: string, args: string[], opts?: ExecOptions) => host.exec(cmd, args, opts),
     watchFolder: fakeWatch,
     appHome: () => host.appHome,
     keys: () => host.keys,

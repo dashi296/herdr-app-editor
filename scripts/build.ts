@@ -2,7 +2,7 @@
 //   bun run scripts/build.ts
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LAYOUT_NAME, MOD_EDITOR, MOD_FILES, MOD_UNINSTALL, isValidModName } from "../src/core/names";
+import { LAYOUT_NAME, MOD_EDITOR, MOD_FILES, MOD_OPEN, MOD_UNINSTALL, isValidModName } from "../src/core/names";
 
 const HOST = ["herdr", "gpui-kit", "gpui-base", "fs/promises"];
 const ROOT = join(import.meta.dir, "..");
@@ -28,6 +28,15 @@ function leadingComment(source: string): string {
 
 const mods: ModSpec[] = [
   { name: MOD_EDITOR, entry: "src/entries/editor.ts", manifest: { place: "none", focusable: true } },
+  {
+    name: MOD_OPEN,
+    entry: "src/entries/editor-open.ts",
+    manifest: {
+      place: "none",
+      focusable: true,
+      overlay: { kind: "popup", at: "top", offset: 40, width: 640, height: 0.6 },
+    },
+  },
   {
     name: MOD_UNINSTALL,
     entry: "src/entries/editor-uninstall.ts",
