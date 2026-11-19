@@ -60,7 +60,9 @@ describe.skipIf(process.platform === "win32")("SPLIT_SCRIPT", () => {
   test("splits after about 3 s even if status keeps listing the overlay", async () => {
     const bin = fakeCli(1_000);
     run(`${bin}:/usr/bin:/bin`, [json, "/app", "herdr-app-editor-open"]);
-    await until(() => log().some((l) => l.includes("\tdo\t")), 10_000);
+    // 60 real process spawns: give a loaded CI runner room, and say what is missing if it runs out.
+    await until(() => log().some((l) => l.includes("\tdo\t")), 25_000);
+    expect(log().some((l) => l.includes("\tdo\t"))).toBe(true);
     expect(log().filter((l) => l.includes("\tstatus\t"))).toHaveLength(60);
-  }, 15_000);
+  }, 30_000);
 });

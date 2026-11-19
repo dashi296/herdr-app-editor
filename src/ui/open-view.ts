@@ -39,7 +39,8 @@ export const LIST_TIMEOUT_MS = 10_000;
 /**
  * Run as `sh -c SPLIT_SCRIPT sh <pane.split args JSON> <app home> <overlay mod>`. Exits 3 at once
  * if `herdr-app` cannot be found. Otherwise it returns at once; in the background it waits until
- * `herdr-app status` no longer lists the overlay (at most about 3 s), then splits the pane.
+ * `herdr-app status` no longer lists the overlay (at most 60 checks 50 ms apart: about 3 s plus the time
+ * the checks take), then splits the pane.
  */
 export const SPLIT_SCRIPT =
   'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' +
@@ -67,6 +68,8 @@ export class OpenView extends View {
   private cx: AsyncContext | null = null;
   /** This overlay's id, read in init(): on the device props() can be empty after an await. */
   private overlay = "";
+  /** A problem to show above the list (herdr-app not found). */
+  private notice: string | null = null;
 
   override init(_props: unknown, cx: AsyncContext): void {
     this.handle = cx.focus_handle();
@@ -157,7 +160,7 @@ export class OpenView extends View {
       }
       if (code === 3) {
         this.done = false; // the person can fix it and press Enter again
-        this.state = { kind: "message", text: NO_CLI };
+        this.notice = NO_CLI; // above the list, which stays on screen: Enter opens what is shown
         cx.notify();
         return;
       }
@@ -231,6 +234,7 @@ export class OpenView extends View {
       .children(
         this.truncated ? [div().text_size(11).text_color(t.dim).child(`Showing the first ${LIST_LIMIT} files`)] : [],
       )
+      .children(this.notice ? [div().text_size(12).text_color(t.blocked).child(this.notice)] : [])
       .child(v_flex().id("open-list").flex_1().min_h(0).overflow_y_scroll().children(body));
   }
 }

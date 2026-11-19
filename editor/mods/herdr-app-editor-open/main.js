@@ -170,6 +170,7 @@ class OpenView extends View {
   base = null;
   cx = null;
   overlay = "";
+  notice = null;
   init(_props, cx) {
     this.handle = cx.focus_handle();
     this.cx = cx;
@@ -246,7 +247,7 @@ class OpenView extends View {
       } catch {}
       if (code === 3) {
         this.done = false;
-        this.state = { kind: "message", text: NO_CLI };
+        this.notice = NO_CLI;
         cx2.notify();
         return;
       }
@@ -272,7 +273,7 @@ class OpenView extends View {
   render(_cx) {
     const t = palette();
     const body = this.state.kind === "loading" ? [div().p(8).text_color(t.dim).child("Loading…")] : this.state.kind === "message" ? [div().p(8).text_color(t.dim).child(this.state.text)] : this.shown.length === 0 ? [div().p(8).text_color(t.dim).child("No files match.")] : this.shown.map((path, i) => h_flex().id(`open-row-${i}`).h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().when(i === this.at, (el) => el.bg(t.hover)).hover((s) => s.bg(t.hover)).on_click((ev) => this.choose(i, Boolean(window()?.platform === "macos" ? ev?.modifiers?.platform : ev?.modifiers?.control))).child(div().flex_1().min_w(0).truncate().child(path)));
-    return v_flex().id("quick-open").track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx)).size_full().min_h(0).p(14).gap(8).bg(t.popover).text_color(t.foreground).text_size(13).child(h_flex().h(36).flex_none().px(10).items_center().rounded(9).border_1().border_color(t.accent).bg(t.background).child(Input.new(this.input).flex_1().h_full())).children(this.truncated ? [div().text_size(11).text_color(t.dim).child(`Showing the first ${LIST_LIMIT} files`)] : []).child(v_flex().id("open-list").flex_1().min_h(0).overflow_y_scroll().children(body));
+    return v_flex().id("quick-open").track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx)).size_full().min_h(0).p(14).gap(8).bg(t.popover).text_color(t.foreground).text_size(13).child(h_flex().h(36).flex_none().px(10).items_center().rounded(9).border_1().border_color(t.accent).bg(t.background).child(Input.new(this.input).flex_1().h_full())).children(this.truncated ? [div().text_size(11).text_color(t.dim).child(`Showing the first ${LIST_LIMIT} files`)] : []).children(this.notice ? [div().text_size(12).text_color(t.blocked).child(this.notice)] : []).child(v_flex().id("open-list").flex_1().min_h(0).overflow_y_scroll().children(body));
   }
 }
 

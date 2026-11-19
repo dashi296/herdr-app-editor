@@ -160,14 +160,19 @@ export abstract class EditorView extends View {
   /** From quick open's split props: the editor panes that existed before it, and its tab. */
   private splitBy: { before: string[]; tab: string } | null = null;
   // dialog role
-  private dialogProps: { to: string; req: string; file: string } | null = null;
+  private dialogProps: { to: string; req: string; file: string; overlay: string } | null = null;
   private choice: Choice | null = null;
 
   override init(_props: unknown, cx: AsyncContext): void {
     const p = (props() ?? {}) as Record<string, unknown>;
     if (p.role === "dialog") {
       this.role = "dialog";
-      this.dialogProps = { to: String(p.to), req: String(p.req), file: String(p.file ?? "") };
+      this.dialogProps = {
+        to: String(p.to),
+        req: String(p.req),
+        file: String(p.file ?? ""),
+        overlay: String(p.overlay), // read now: props() can be empty later on the device
+      };
       this.handle = cx.focus_handle();
       this.handle.focus();
       return;
@@ -893,7 +898,7 @@ export abstract class EditorView extends View {
     const d = this.dialogProps!;
     const choose = (c: Choice) => (_cx: Context) => {
       this.choice = c;
-      closeOverlay(String((props() as { overlay?: string }).overlay));
+      closeOverlay(d.overlay);
     };
     return v_flex()
       .id("editor-dialog")

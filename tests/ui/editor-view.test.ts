@@ -670,6 +670,17 @@ describe("external changes", () => {
 });
 
 describe("close", () => {
+  test("a dialog button closes the overlay it was opened as, even when props() is empty later", () => {
+    host.props = { role: "dialog", to: "k1", req: "r1", file: "/p/a.txt", overlay: "ov7" };
+    const v = makeView();
+    v.init(undefined, cx);
+    host.props = {};
+    host.clicks.clear();
+    v.render(cx);
+    host.clicks.get("dlg-cancel")!({}, cx);
+    expect(host.closed).toEqual(["ov7"]);
+  });
+
   test("a dialog closed without a choice replies cancel to its editor", async () => {
     host.props = { role: "dialog", to: "k1", req: "r1", file: "/p/a.txt" };
     const v = makeView();

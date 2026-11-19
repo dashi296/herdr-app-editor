@@ -984,7 +984,12 @@ class EditorView extends View {
     const p = props() ?? {};
     if (p.role === "dialog") {
       this.role = "dialog";
-      this.dialogProps = { to: String(p.to), req: String(p.req), file: String(p.file ?? "") };
+      this.dialogProps = {
+        to: String(p.to),
+        req: String(p.req),
+        file: String(p.file ?? ""),
+        overlay: String(p.overlay)
+      };
       this.handle = cx.focus_handle();
       this.handle.focus();
       return;
@@ -1534,7 +1539,7 @@ class EditorView extends View {
     const d = this.dialogProps;
     const choose = (c) => (_cx) => {
       this.choice = c;
-      closeOverlay(String(props().overlay));
+      closeOverlay(d.overlay);
     };
     return v_flex().id("editor-dialog").size_full().p(18).gap(12).bg(t.popover).text_color(t.foreground).text_size(13).track_focus(this.handle).child(div().font_semibold().child("Save changes before opening another file?")).child(div().text_color(t.muted).truncate().child(d.file)).child(h_flex().gap(8).justify_end().child(this.button("dlg-cancel", "Cancel", t, choose("cancel"))).child(this.button("dlg-discard", "Don't save", t, choose("discard"))).child(this.button("dlg-save", "Save", t, choose("save"))));
   }

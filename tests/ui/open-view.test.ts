@@ -200,7 +200,10 @@ describe("filtering and choosing", () => {
     v.onKey({ key: "enter", modifiers: {} }, cx);
     await settle();
     expect(host.closed).toEqual([]);
-    expect(shown(v).some((t) => t.includes("herdr-app"))).toBe(true);
+    const texts = shown(v);
+    expect(texts.some((t) => t.includes("herdr-app"))).toBe(true);
+    // The list stays on screen, so what Enter opens next is what the person sees.
+    expect(texts).toContain("a.ts");
   });
 
   test("it closes the overlay it was opened as, even when props() is empty later (as on the device)", async () => {

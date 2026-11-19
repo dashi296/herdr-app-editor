@@ -87,6 +87,18 @@ describe("opening files", () => {
     expect(FakeEditorState.created.at(-1)).toMatchObject({ opts: { readonly: true, value: "preview me" } });
   });
 
+  test("without the editor mod, a click made before the folder changed previews nothing from the new folder", async () => {
+    host.files.set("/work/app/a.ts", "old");
+    host.files.set("/work/other/a.ts", "new");
+    const v = start();
+    v.openInEditor("a.ts", cx);
+    // The person switches to another folder before the install check returns.
+    host.panes = [{ ...TERMINAL, cwd: "/work/other" }];
+    v.refresh(cx);
+    await settle();
+    expect(host.reads).not.toContain("/work/other/a.ts");
+  });
+
   test("the check is cached for EDITOR_CHECK_MS", async () => {
     host.files.set(MOD_JSON, "{}");
     host.onRun = (command) => {
