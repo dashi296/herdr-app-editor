@@ -10,6 +10,17 @@ Two pieces you add to the layout you already use, each listed on [herdr.dev/mods
 
 ![Herdr Editor](editor/preview.png)
 
+## Which layouts it works with
+
+- **Herdr Editor** does not change your layout. The editor opens as a pane in the current tab, so it works in any layout that has panes. Two things to know:
+  - Quick open searches the folder of the focused terminal. In a tab with no pane that has a folder, it says "No folder to search here."
+  - A new editor pane is split with the `herdr-app` command. If the command is not on PATH or in `~/.local/bin`, quick open says so and opens no new pane. Opening a file in an editor pane that is already there still works.
+- **Herdr Editor Files** takes the place of the Files panel, so your layout has to be edited:
+  - Its Files block changes from `{ "mod": "files" }` to `{ "mod": "herdr-app-editor-files" }`.
+  - Herdr's own layouts (such as `main`) are read-only, so they are cloned first. A clone does not get later changes Herdr makes to the layout it came from.
+  - If your layout has no Files block, the agent asks where the panel should go.
+- Both have been tried only in a clone of Herdr's `main` layout with the Files block changed, not in other people's own layouts.
+
 ## Add it
 
 Ask your agent, with the folder's GitHub URL:
