@@ -977,6 +977,7 @@ class EditorView extends View {
   seen = [];
   polling = false;
   lastPoll = 0;
+  splitBy = null;
   dialogProps = null;
   choice = null;
   init(_props, cx) {
@@ -999,6 +1000,7 @@ class EditorView extends View {
     this.themes = t.themes;
     this.themeNotes = t.messages;
     const initial = { file: typeof p.file === "string" ? p.file : null, on: typeof p.on === "string" ? p.on : null };
+    this.splitBy = Array.isArray(p.before) && typeof p.tab === "string" ? { before: p.before.map(String), tab: p.tab } : null;
     cx.spawn(async (cx2) => {
       let target = initial;
       const seq = this.openSeq;
@@ -1391,12 +1393,12 @@ class EditorView extends View {
     }
   }
   claimNewPane() {
-    const p = props() ?? {};
-    if (!Array.isArray(p.before) || typeof p.tab !== "string")
+    const by = this.splitBy;
+    if (!by)
       return;
-    const pane = newPaneAfterSplit(p.before.map(String), panes(), MOD_EDITOR, p.tab);
+    const pane = newPaneAfterSplit(by.before, panes(), MOD_EDITOR, by.tab);
     if (pane)
-      this.writeEntry(pane, p.tab);
+      this.writeEntry(pane, by.tab);
   }
   register() {
     const pane = focused()?.pane;

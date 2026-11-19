@@ -180,6 +180,18 @@ describe("init", () => {
     expect(reg).toEqual({ k1: expect.objectContaining({ pane: "e9", tab: "t1" }) });
   });
 
+  test("it uses the props it got at init: on the device props() is empty by the time the first load ends", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: [] };
+    const v = makeView();
+    v.init(undefined, cx);
+    host.props = {};
+    await settle();
+    const reg = (host.shared.get(SHARED_KEY) as { registry?: Record<string, { pane: string }> } | undefined)?.registry;
+    expect(reg?.k1).toMatchObject({ pane: "e9" });
+  });
+
   test("with two new editor panes it cannot tell which is its own, and registers neither", async () => {
     host.panes = [
       { pane: "e8", tab: "t1", mod: MOD_EDITOR },

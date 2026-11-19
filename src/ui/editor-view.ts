@@ -157,6 +157,8 @@ export abstract class EditorView extends View {
   private seen: string[] = [];
   private polling = false;
   private lastPoll = 0;
+  /** From quick open's split props: the editor panes that existed before it, and its tab. */
+  private splitBy: { before: string[]; tab: string } | null = null;
   // dialog role
   private dialogProps: { to: string; req: string; file: string } | null = null;
   private choice: Choice | null = null;
@@ -185,6 +187,9 @@ export abstract class EditorView extends View {
     this.themes = t.themes;
     this.themeNotes = t.messages;
     const initial = { file: typeof p.file === "string" ? p.file : null, on: typeof p.on === "string" ? p.on : null };
+    // Read now: on the device props() is empty by the time the first load ends.
+    this.splitBy =
+      Array.isArray(p.before) && typeof p.tab === "string" ? { before: p.before.map(String), tab: p.tab } : null;
     cx.spawn(async (cx) => {
       let target = initial;
       const seq = this.openSeq;
@@ -626,10 +631,10 @@ export abstract class EditorView extends View {
    * and waits for its editor to get focus (register()).
    */
   private claimNewPane() {
-    const p = (props() ?? {}) as { before?: unknown; tab?: unknown };
-    if (!Array.isArray(p.before) || typeof p.tab !== "string") return;
-    const pane = newPaneAfterSplit(p.before.map(String), panes(), MOD_EDITOR, p.tab);
-    if (pane) this.writeEntry(pane, p.tab);
+    const by = this.splitBy;
+    if (!by) return;
+    const pane = newPaneAfterSplit(by.before, panes(), MOD_EDITOR, by.tab);
+    if (pane) this.writeEntry(pane, by.tab);
   }
 
   /** Records this pane as the latest focused editor. The "focus" command reaches the focused copy. */
