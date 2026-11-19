@@ -84,6 +84,10 @@ interface Draft {
 interface SharedState {
   registry?: Registry;
   theme?: string;
+  /** key → when that pane finished its first load. The quick open overlay that split the pane waits
+   *  for it before closing: a pane's first file reads never finish if the overlay that created it
+   *  closes first (device test S10, Herdr 0.1.16). */
+  loaded?: Record<string, number>;
 }
 
 type Screen = { kind: "loading" } | { kind: "message"; text: string } | { kind: "empty" } | { kind: "ready" };
@@ -197,6 +201,7 @@ export abstract class EditorView extends View {
       if (seq !== this.openSeq) return;
       if (target.file) await this.openFile(target.file, target.on, cx);
       else this.screen = { kind: "empty" };
+      this.markLoaded();
       cx.notify();
     });
     cx.spawn(async (cx) => {
@@ -615,6 +620,16 @@ export abstract class EditorView extends View {
         this.routing = dialogOpened(this.routing, e.req, overlay);
       }
     }
+  }
+
+  /** Tells the overlay that split this pane that it may close (see SharedState.loaded). Keeps only
+   *  entries of live editors. */
+  private markLoaded() {
+    const s = readShared();
+    const live = new Set(Object.keys(pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR)));
+    const loaded = Object.fromEntries(Object.entries(s.loaded ?? {}).filter(([k]) => live.has(k)));
+    loaded[this.key] = Date.now();
+    setShared(SHARED_KEY, { ...s, loaded });
   }
 
   /** Records this pane as the latest focused editor. The "focus" command reaches the focused copy. */

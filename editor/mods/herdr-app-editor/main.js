@@ -1008,6 +1008,7 @@ class EditorView extends View {
         await this.openFile(target.file, target.on, cx2);
       else
         this.screen = { kind: "empty" };
+      this.markLoaded();
       cx2.notify();
     });
     cx.spawn(async (cx2) => {
@@ -1383,6 +1384,13 @@ class EditorView extends View {
         this.routing = dialogOpened(this.routing, e.req, overlay);
       }
     }
+  }
+  markLoaded() {
+    const s = readShared();
+    const live = new Set(Object.keys(pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR)));
+    const loaded = Object.fromEntries(Object.entries(s.loaded ?? {}).filter(([k]) => live.has(k)));
+    loaded[this.key] = Date.now();
+    setShared(SHARED_KEY, { ...s, loaded });
   }
   register() {
     const f = focused();

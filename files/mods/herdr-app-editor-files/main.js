@@ -72,10 +72,8 @@ class EditorOpener {
   splitting = false;
   queued = [];
   open(request, cx) {
-    if (this.splitting) {
-      this.queued.push(request);
-      return;
-    }
+    if (this.splitting)
+      return new Promise((resolve) => this.queued.push({ request, resolve }));
     const { file, on, tab, newPane } = request;
     const all = panes2();
     const registry = pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR);
@@ -83,13 +81,13 @@ class EditorOpener {
     if (target) {
       run("pane.focus", { pane: target.pane });
       run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
-      return;
+      return Promise.resolve({ key: target.key, split: false });
     }
     const inTab = all.filter((p) => p.tab === tab);
     const f = focused2();
     const base = inTab.find((p) => p.pane === f?.pane) ?? inTab[0];
     if (!base)
-      return;
+      return Promise.resolve(null);
     const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
     const key = id("e");
     this.splitting = true;
@@ -100,28 +98,39 @@ class EditorOpener {
       this.drain(cx);
       throw e;
     }
-    cx.spawn(async (cx2) => {
-      try {
-        for (let i = 0;i < 30; i++) {
-          await cx2.sleep(100);
-          const pane = newPaneAfterSplit(before, panes2(), MOD_EDITOR, tab);
-          if (!pane)
-            continue;
-          const now = readShared();
-          const reg = pruneRegistry(now.registry ?? {}, panes2(), MOD_EDITOR);
-          reg[key] = { pane, tab, lastFocus: Date.now() };
-          setShared(SHARED_KEY, { ...now, registry: reg });
-          return;
+    return new Promise((resolve) => {
+      cx.spawn(async (cx2) => {
+        let result = null;
+        try {
+          for (let i = 0;i < 30; i++) {
+            await cx2.sleep(100);
+            const pane = newPaneAfterSplit(before, panes2(), MOD_EDITOR, tab);
+            if (!pane)
+              continue;
+            const now = readShared();
+            const reg = pruneRegistry(now.registry ?? {}, panes2(), MOD_EDITOR);
+            reg[key] = { pane, tab, lastFocus: Date.now() };
+            setShared(SHARED_KEY, { ...now, registry: reg });
+            result = { key, split: true };
+            return;
+          }
+        } finally {
+          this.splitting = false;
+          resolve(result);
+          this.drain(cx2);
         }
-      } finally {
-        this.splitting = false;
-        this.drain(cx2);
-      }
+      });
     });
   }
   drain(cx) {
-    while (this.queued.length && !this.splitting)
-      this.open(this.queued.shift(), cx);
+    while (this.queued.length && !this.splitting) {
+      const { request, resolve } = this.queued.shift();
+      try {
+        this.open(request, cx).then(resolve);
+      } catch {
+        resolve(null);
+      }
+    }
   }
 }
 

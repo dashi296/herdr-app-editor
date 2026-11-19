@@ -165,6 +165,12 @@ describe("init", () => {
     expect(owners.every((o) => /^m[0-9a-z]+$/.test(o!))).toBe(true);
   });
 
+  test("after its first file loads, a pane reports it in shared state (the quick open overlay waits for it)", async () => {
+    await opened();
+    const loaded = (host.shared.get(SHARED_KEY) as { loaded?: Record<string, number> }).loaded;
+    expect(loaded?.k1).toEqual(expect.any(Number));
+  });
+
   test("an empty editor shows Open file… and the bound key", async () => {
     host.keys = [{ section: "global", keys: "cmd-o", action: `mod.open:${MOD_OPEN}` }];
     const v = makeView();

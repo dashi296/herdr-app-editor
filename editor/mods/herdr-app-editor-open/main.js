@@ -2,7 +2,12 @@
 // src/ui/open-view.ts
 import { View, div } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
-import { checking, closeOverlay, exec, props, window } from "herdr";
+import { checking, closeOverlay, exec, props, shared as shared2, window } from "herdr";
+
+// src/core/names.ts
+var NS = "herdr-app-editor";
+var MOD_EDITOR = "herdr-app-editor";
+var SHARED_KEY = NS;
 
 // src/core/quick-open/match.ts
 var LIST_LIMIT = 20000;
@@ -51,13 +56,6 @@ function rankPaths(paths, query, limit) {
 
 // src/ui/location.ts
 import { focused, panes, spaces } from "herdr";
-
-// src/core/names.ts
-var NS = "herdr-app-editor";
-var MOD_EDITOR = "herdr-app-editor";
-var SHARED_KEY = NS;
-
-// src/ui/location.ts
 function currentLocation() {
   const space = spaces().find((s) => s.active), f = focused();
   let pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
@@ -107,10 +105,8 @@ class EditorOpener {
   splitting = false;
   queued = [];
   open(request, cx) {
-    if (this.splitting) {
-      this.queued.push(request);
-      return;
-    }
+    if (this.splitting)
+      return new Promise((resolve) => this.queued.push({ request, resolve }));
     const { file, on, tab, newPane } = request;
     const all = panes2();
     const registry = pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR);
@@ -118,13 +114,13 @@ class EditorOpener {
     if (target) {
       run("pane.focus", { pane: target.pane });
       run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
-      return;
+      return Promise.resolve({ key: target.key, split: false });
     }
     const inTab = all.filter((p) => p.tab === tab);
     const f = focused2();
     const base = inTab.find((p) => p.pane === f?.pane) ?? inTab[0];
     if (!base)
-      return;
+      return Promise.resolve(null);
     const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
     const key = id("e");
     this.splitting = true;
@@ -135,28 +131,39 @@ class EditorOpener {
       this.drain(cx);
       throw e;
     }
-    cx.spawn(async (cx2) => {
-      try {
-        for (let i = 0;i < 30; i++) {
-          await cx2.sleep(100);
-          const pane = newPaneAfterSplit(before, panes2(), MOD_EDITOR, tab);
-          if (!pane)
-            continue;
-          const now = readShared();
-          const reg = pruneRegistry(now.registry ?? {}, panes2(), MOD_EDITOR);
-          reg[key] = { pane, tab, lastFocus: Date.now() };
-          setShared(SHARED_KEY, { ...now, registry: reg });
-          return;
+    return new Promise((resolve) => {
+      cx.spawn(async (cx2) => {
+        let result = null;
+        try {
+          for (let i = 0;i < 30; i++) {
+            await cx2.sleep(100);
+            const pane = newPaneAfterSplit(before, panes2(), MOD_EDITOR, tab);
+            if (!pane)
+              continue;
+            const now = readShared();
+            const reg = pruneRegistry(now.registry ?? {}, panes2(), MOD_EDITOR);
+            reg[key] = { pane, tab, lastFocus: Date.now() };
+            setShared(SHARED_KEY, { ...now, registry: reg });
+            result = { key, split: true };
+            return;
+          }
+        } finally {
+          this.splitting = false;
+          resolve(result);
+          this.drain(cx2);
         }
-      } finally {
-        this.splitting = false;
-        this.drain(cx2);
-      }
+      });
     });
   }
   drain(cx) {
-    while (this.queued.length && !this.splitting)
-      this.open(this.queued.shift(), cx);
+    while (this.queued.length && !this.splitting) {
+      const { request, resolve } = this.queued.shift();
+      try {
+        this.open(request, cx).then(resolve);
+      } catch {
+        resolve(null);
+      }
+    }
   }
 }
 
@@ -192,6 +199,9 @@ function palette() {
 // src/ui/open-view.ts
 var GIT_ARGS = ["ls-files", "-co", "--exclude-standard", "-z"];
 var FIND_ARGS = [".", "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*"];
+var LOAD_WAIT_MS = 5000;
+var LOAD_POLL_MS = 50;
+var loadedAt = (key) => shared2(SHARED_KEY)?.loaded?.[key];
 
 class OpenView extends View {
   handle = null;
@@ -252,11 +262,22 @@ class OpenView extends View {
   }
   choose(i, newPane) {
     const path = this.shown[i];
-    if (this.done || !path || !this.loc?.cwd || !this.tab || !this.cx)
+    const cx = this.cx;
+    if (this.done || !path || !this.loc?.cwd || !this.tab || !cx)
       return;
     this.done = true;
-    this.opener.open({ file: `${this.loc.cwd}/${path}`, on: this.loc.on, tab: this.tab, newPane }, this.cx);
-    this.dismiss();
+    this.state = { kind: "opening", path };
+    const opened = this.opener.open({ file: `${this.loc.cwd}/${path}`, on: this.loc.on, tab: this.tab, newPane }, cx);
+    cx.spawn(async (cx2) => {
+      try {
+        const result = await opened;
+        if (result?.split)
+          for (let waited = 0;waited < LOAD_WAIT_MS && loadedAt(result.key) === undefined; waited += LOAD_POLL_MS)
+            await cx2.sleep(LOAD_POLL_MS);
+      } finally {
+        this.dismiss();
+      }
+    });
   }
   onKey(e, cx) {
     const k = e.key;
@@ -276,7 +297,7 @@ class OpenView extends View {
   }
   render(_cx) {
     const t = palette();
-    const body = this.state.kind === "loading" ? [div().p(8).text_color(t.dim).child("Loading…")] : this.state.kind === "message" ? [div().p(8).text_color(t.dim).child(this.state.text)] : this.shown.length === 0 ? [div().p(8).text_color(t.dim).child("No files match.")] : this.shown.map((path, i) => h_flex().id(`open-row-${i}`).h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().when(i === this.at, (el) => el.bg(t.hover)).hover((s) => s.bg(t.hover)).on_click((ev) => this.choose(i, Boolean(window()?.platform === "macos" ? ev?.modifiers?.platform : ev?.modifiers?.control))).child(div().flex_1().min_w(0).truncate().child(path)));
+    const body = this.state.kind === "loading" ? [div().p(8).text_color(t.dim).child("Loading…")] : this.state.kind === "message" ? [div().p(8).text_color(t.dim).child(this.state.text)] : this.state.kind === "opening" ? [div().p(8).text_color(t.dim).child(`Opening ${this.state.path}…`)] : this.shown.length === 0 ? [div().p(8).text_color(t.dim).child("No files match.")] : this.shown.map((path, i) => h_flex().id(`open-row-${i}`).h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().when(i === this.at, (el) => el.bg(t.hover)).hover((s) => s.bg(t.hover)).on_click((ev) => this.choose(i, Boolean(window()?.platform === "macos" ? ev?.modifiers?.platform : ev?.modifiers?.control))).child(div().flex_1().min_w(0).truncate().child(path)));
     return v_flex().id("quick-open").track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx)).size_full().min_h(0).p(14).gap(8).bg(t.popover).text_color(t.foreground).text_size(13).child(h_flex().h(36).flex_none().px(10).items_center().rounded(9).border_1().border_color(t.accent).bg(t.background).child(Input.new(this.input).flex_1().h_full())).children(this.truncated ? [div().text_size(11).text_color(t.dim).child(`Showing the first ${LIST_LIMIT} files`)] : []).child(v_flex().id("open-list").flex_1().min_h(0).overflow_y_scroll().children(body));
   }
 }

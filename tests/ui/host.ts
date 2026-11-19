@@ -17,6 +17,11 @@ export function deferred<T>(): Deferred<T> {
 }
 
 /** Lets pending promise callbacks run. */
+/** Runs pending tasks until cond() holds, or gives up after `rounds` turns. */
+export async function until(cond: () => boolean, rounds = 1000): Promise<void> {
+  for (let i = 0; i < rounds && !cond(); i++) await new Promise((r) => setTimeout(r, 0));
+}
+
 export const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
 };

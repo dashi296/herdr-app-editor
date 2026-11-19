@@ -104,6 +104,27 @@ describe("EditorOpener", () => {
   });
 });
 
+describe("what open resolves with", () => {
+  test("an existing editor: its key, at once, not split", async () => {
+    host.panes = [TERMINAL, { pane: "e1", tab: "t1", mod: MOD_EDITOR }];
+    host.shared.set(SHARED_KEY, { registry: { k1: { pane: "e1", tab: "t1", lastFocus: 1 } } });
+    expect(await new EditorOpener().open(req("a.ts"), cx)).toEqual({ key: "k1", split: false });
+  });
+
+  test("a new editor: its key once it is registered", async () => {
+    host.onRun = (command) => {
+      if (command === "pane.split") host.panes = [...host.panes, { pane: "e1", tab: "t1", mod: MOD_EDITOR }];
+    };
+    const result = await new EditorOpener().open(req("a.ts"), cx);
+    expect(result).toMatchObject({ split: true });
+    expect(registry()[result!.key]).toMatchObject({ pane: "e1" });
+  });
+
+  test("null when the new pane never shows up", async () => {
+    expect(await new EditorOpener().open(req("a.ts"), cx)).toBeNull();
+  });
+});
+
 describe("location", () => {
   test("currentLocation follows a terminal in the same tab while an editor has focus", async () => {
     const { currentLocation, activeTab } = await import("../../src/ui/location");

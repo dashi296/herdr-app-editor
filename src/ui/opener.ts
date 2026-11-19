@@ -21,6 +21,12 @@ export interface OpenerContext {
   spawn(fn: (cx: OpenerContext & { sleep(ms: number): Promise<void> }) => Promise<unknown>): unknown;
 }
 
+/** Where a request went: the editor pane's key, and whether that pane was split for it. */
+export interface OpenResult {
+  key: string;
+  split: boolean;
+}
+
 type SharedState = { registry?: Registry } & Record<string, unknown>;
 const readShared = () => (shared(SHARED_KEY) ?? {}) as SharedState;
 const id = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -29,13 +35,12 @@ export class EditorOpener {
   /** A split is being registered: a second split would make the new pane ambiguous
    *  (newPaneAfterSplit needs exactly one), so requests wait in `queued` and replay in order. */
   splitting = false;
-  private queued: OpenRequest[] = [];
+  private queued: { request: OpenRequest; resolve: (r: OpenResult | null) => void }[] = [];
 
-  open(request: OpenRequest, cx: OpenerContext): void {
-    if (this.splitting) {
-      this.queued.push(request);
-      return;
-    }
+  /** Resolves once the file was sent to an existing editor, or once a new editor pane is registered
+   *  (null if the new pane never showed up). Throws at once if the split itself fails. */
+  open(request: OpenRequest, cx: OpenerContext): Promise<OpenResult | null> {
+    if (this.splitting) return new Promise((resolve) => this.queued.push({ request, resolve }));
     const { file, on, tab, newPane } = request;
     const all = panes();
     const registry = pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR);
@@ -44,12 +49,12 @@ export class EditorOpener {
       // pane.focus first: FIFO delivery makes the editor shown when "open" arrives (spike S5).
       run("pane.focus", { pane: target.pane });
       run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
-      return;
+      return Promise.resolve({ key: target.key, split: false });
     }
     const inTab = all.filter((p) => p.tab === tab);
     const f = focused();
     const base = inTab.find((p) => p.pane === f?.pane) ?? inTab[0];
-    if (!base) return;
+    if (!base) return Promise.resolve(null);
     const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
     const key = id("e");
     this.splitting = true;
@@ -61,26 +66,38 @@ export class EditorOpener {
       throw e;
     }
     // The editor cannot learn its own pane at init (spike S5 result 6): register it from here.
-    cx.spawn(async (cx) => {
-      try {
-        for (let i = 0; i < 30; i++) {
-          await cx.sleep(100);
-          const pane = newPaneAfterSplit(before, panes(), MOD_EDITOR, tab);
-          if (!pane) continue;
-          const now = readShared();
-          const reg = pruneRegistry(now.registry ?? {}, panes(), MOD_EDITOR);
-          reg[key] = { pane, tab, lastFocus: Date.now() };
-          setShared(SHARED_KEY, { ...now, registry: reg });
-          return;
+    return new Promise((resolve) => {
+      cx.spawn(async (cx) => {
+        let result: OpenResult | null = null;
+        try {
+          for (let i = 0; i < 30; i++) {
+            await cx.sleep(100);
+            const pane = newPaneAfterSplit(before, panes(), MOD_EDITOR, tab);
+            if (!pane) continue;
+            const now = readShared();
+            const reg = pruneRegistry(now.registry ?? {}, panes(), MOD_EDITOR);
+            reg[key] = { pane, tab, lastFocus: Date.now() };
+            setShared(SHARED_KEY, { ...now, registry: reg });
+            result = { key, split: true };
+            return;
+          }
+        } finally {
+          this.splitting = false;
+          resolve(result);
+          this.drain(cx);
         }
-      } finally {
-        this.splitting = false;
-        this.drain(cx);
-      }
+      });
     });
   }
 
   private drain(cx: OpenerContext) {
-    while (this.queued.length && !this.splitting) this.open(this.queued.shift()!, cx);
+    while (this.queued.length && !this.splitting) {
+      const { request, resolve } = this.queued.shift()!;
+      try {
+        void this.open(request, cx).then(resolve);
+      } catch {
+        resolve(null);
+      }
+    }
   }
 }
