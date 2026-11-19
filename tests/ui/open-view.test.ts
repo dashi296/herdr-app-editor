@@ -203,6 +203,33 @@ describe("filtering and choosing", () => {
     expect(shown(v).some((t) => t.includes("herdr-app"))).toBe(true);
   });
 
+  test("it closes the overlay it was opened as, even when props() is empty later (as on the device)", async () => {
+    gitFiles(["a.ts"]);
+    const v = await start();
+    host.props = {};
+    v.onKey({ key: "enter", modifiers: {} }, cx);
+    await settle();
+    expect(host.closed).toEqual(["ov1"]);
+  });
+
+  test("after herdr-app was missing, Enter can try again", async () => {
+    let missing = true;
+    host.exec = async (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      if (cmd === "git") return { code: 0, stdout: "a.ts\0", stderr: "" };
+      return { code: missing ? 3 : 0, stdout: "", stderr: "" };
+    };
+    const v = await start();
+    v.onKey({ key: "enter", modifiers: {} }, cx);
+    await settle();
+    expect(host.closed).toEqual([]);
+    missing = false;
+    v.onKey({ key: "enter", modifiers: {} }, cx);
+    await settle();
+    expect(calls.filter((c) => c.cmd === "sh")).toHaveLength(2);
+    expect(host.closed).toEqual(["ov1"]);
+  });
+
   test("the new pane learns which editor panes existed before it, so it can find itself", async () => {
     host.panes = [...host.panes, { pane: "e7", tab: "t9", mod: MOD_EDITOR }];
     gitFiles(["a.ts"]);

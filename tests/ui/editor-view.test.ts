@@ -192,6 +192,34 @@ describe("init", () => {
     expect(reg?.k1).toMatchObject({ pane: "e9" });
   });
 
+  test("it does not claim again when its key is already registered (a restart keeps the split props)", async () => {
+    // The pane was moved to tab t9; its old tab t1 now holds one editor pane that is not in before.
+    host.panes = [
+      { pane: "e5", tab: "t9", mod: MOD_EDITOR },
+      { pane: "e9", tab: "t1", mod: MOD_EDITOR },
+    ];
+    host.shared.set(SHARED_KEY, { registry: { k1: { pane: "e5", tab: "t9", lastFocus: 7 } } });
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: [] };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, unknown> }).registry;
+    expect(reg).toEqual({ k1: { pane: "e5", tab: "t9", lastFocus: 7 } });
+  });
+
+  test("it does not claim a pane another key already names", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    host.shared.set(SHARED_KEY, { registry: { other: { pane: "e9", tab: "t1", lastFocus: 7 } } });
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: [] };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, unknown> }).registry;
+    expect(Object.keys(reg)).toEqual(["other"]);
+  });
+
   test("with two new editor panes it cannot tell which is its own, and registers neither", async () => {
     host.panes = [
       { pane: "e8", tab: "t1", mod: MOD_EDITOR },

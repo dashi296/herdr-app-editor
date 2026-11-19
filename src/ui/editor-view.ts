@@ -633,8 +633,12 @@ export abstract class EditorView extends View {
   private claimNewPane() {
     const by = this.splitBy;
     if (!by) return;
+    // The split props stay with the pane across restarts: claim only once, and never a pane that
+    // another key already names.
+    const registry = pruneRegistry(readShared().registry ?? {}, panes(), MOD_EDITOR);
+    if (registry[this.key]) return;
     const pane = newPaneAfterSplit(by.before, panes(), MOD_EDITOR, by.tab);
-    if (pane) this.writeEntry(pane, by.tab);
+    if (pane && !Object.values(registry).some((e) => e.pane === pane)) this.writeEntry(pane, by.tab);
   }
 
   /** Records this pane as the latest focused editor. The "focus" command reaches the focused copy. */

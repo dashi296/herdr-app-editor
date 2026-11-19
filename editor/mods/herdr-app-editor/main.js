@@ -1396,8 +1396,11 @@ class EditorView extends View {
     const by = this.splitBy;
     if (!by)
       return;
+    const registry = pruneRegistry(readShared().registry ?? {}, panes(), MOD_EDITOR);
+    if (registry[this.key])
+      return;
     const pane = newPaneAfterSplit(by.before, panes(), MOD_EDITOR, by.tab);
-    if (pane)
+    if (pane && !Object.values(registry).some((e) => e.pane === pane))
       this.writeEntry(pane, by.tab);
   }
   register() {

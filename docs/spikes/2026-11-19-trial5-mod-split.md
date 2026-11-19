@@ -35,3 +35,7 @@
 
 - エージェントが RECIPE だけで導入できること（別の app home で、`keys.json` のキーの確認の質問、Files ブロックの差し替えと `main` の複製）。2つ目の Herdr を起動する必要があり、この確認では行っていない。
 - Linux / Windows。ファイル検索から新しい pane を作る処理は `sh` と `herdr-app` を使う。
+
+## 補足: `herdr-app status` の `overlays`
+
+ファイル検索の分割スクリプトは、オーバーレイが閉じたことを `herdr-app status` で確かめる。実機（0.1.16）では、ファイル検索を開いている間は `"overlays": ["herdr-app-editor-open"]`、閉じた後は `"overlays": []` だった（オーバーレイの mod 名が JSON の文字列として並ぶ）。形が変わって一致しなくなると、待たずにすぐ分割する。上限は約 3 秒。

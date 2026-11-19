@@ -169,9 +169,11 @@ class OpenView extends View {
   tab = null;
   base = null;
   cx = null;
+  overlay = "";
   init(_props, cx) {
     this.handle = cx.focus_handle();
     this.cx = cx;
+    this.overlay = String(props()?.overlay);
     this.input = InputState.new({ placeholder: "Open a file…" });
     if (checking())
       return;
@@ -215,7 +217,7 @@ class OpenView extends View {
     this.at = 0;
   }
   dismiss() {
-    closeOverlay(String(props()?.overlay));
+    closeOverlay(this.overlay);
   }
   choose(i, newPane) {
     const path = this.shown[i];
@@ -243,6 +245,7 @@ class OpenView extends View {
         code = (await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN])).code;
       } catch {}
       if (code === 3) {
+        this.done = false;
         this.state = { kind: "message", text: NO_CLI };
         cx2.notify();
         return;

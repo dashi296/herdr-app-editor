@@ -65,10 +65,13 @@ export class OpenView extends View {
   /** The pane focused when the overlay opened: a new editor pane splits next to it. */
   private base: string | null = null;
   private cx: AsyncContext | null = null;
+  /** This overlay's id, read in init(): on the device props() can be empty after an await. */
+  private overlay = "";
 
   override init(_props: unknown, cx: AsyncContext): void {
     this.handle = cx.focus_handle();
     this.cx = cx;
+    this.overlay = String((props() as { overlay?: string } | null)?.overlay);
     this.input = InputState.new({ placeholder: "Open a file…" });
     if (checking()) return;
     this.input.on("change", (_e: unknown, cx: Context) => {
@@ -117,7 +120,7 @@ export class OpenView extends View {
   }
 
   private dismiss() {
-    closeOverlay(String((props() as { overlay?: string } | null)?.overlay));
+    closeOverlay(this.overlay);
   }
 
   /** Opens shown[i] once and closes the overlay. */
@@ -153,6 +156,7 @@ export class OpenView extends View {
         /* the background part may still run; nothing more to do from here */
       }
       if (code === 3) {
+        this.done = false; // the person can fix it and press Enter again
         this.state = { kind: "message", text: NO_CLI };
         cx.notify();
         return;
