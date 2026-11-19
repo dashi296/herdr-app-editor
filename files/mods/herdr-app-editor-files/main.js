@@ -346,14 +346,14 @@ class Files extends View {
     if (!tab)
       return;
     const request = { file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane };
-    const root = this.root;
+    const context = this.context;
     cx.spawn(async (cx2) => {
       const now = Date.now();
       if (!this.editorCheck || now - this.editorCheck.at >= EDITOR_CHECK_MS)
         this.editorCheck = { at: now, installed: await editorInstalled() };
       if (this.editorCheck.installed)
         (this.opener ??= new EditorOpener).open(request, cx2);
-      else if (this.root === root)
+      else if (this.context === context)
         this.show(path, cx2);
       cx2.notify();
     });

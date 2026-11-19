@@ -245,13 +245,14 @@ export default class Files extends View {
     const tab = activeTab();
     if (!tab) return;
     const request = { file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane };
-    const root = this.root;
+    const context = this.context;
     cx.spawn(async (cx) => {
       const now = Date.now();
       if (!this.editorCheck || now - this.editorCheck.at >= EDITOR_CHECK_MS)
         this.editorCheck = { at: now, installed: await editorInstalled() };
       if (this.editorCheck.installed) (this.opener ??= new EditorOpener()).open(request, cx);
-      else if (this.root === root) this.show(path, cx); // not a same-named file of a folder shown since
+      // Not a same-named file of a folder, space or machine shown since the click.
+      else if (this.context === context) this.show(path, cx);
       cx.notify();
     });
   }

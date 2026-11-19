@@ -215,6 +215,27 @@ describe("filtering and choosing", () => {
     expect(host.closed).toEqual(["ov1"]);
   });
 
+  test("if sh cannot be started, the overlay stays open, says so, and Enter can try again", async () => {
+    let fail = true;
+    host.exec = async (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      if (cmd === "git") return { code: 0, stdout: "a.ts\0", stderr: "" };
+      if (fail) throw new Error("cannot start sh: program not found");
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const v = await start();
+    v.onKey({ key: "enter", modifiers: {} }, cx);
+    await settle();
+    expect(host.closed).toEqual([]);
+    const texts = shown(v);
+    expect(texts.some((t) => t.includes("program not found"))).toBe(true);
+    expect(texts).toContain("a.ts");
+    fail = false;
+    v.onKey({ key: "enter", modifiers: {} }, cx);
+    await settle();
+    expect(host.closed).toEqual(["ov1"]);
+  });
+
   test("after herdr-app was missing, Enter can try again", async () => {
     let missing = true;
     host.exec = async (cmd, args, opts) => {

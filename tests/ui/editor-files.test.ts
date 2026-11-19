@@ -99,6 +99,16 @@ describe("opening files", () => {
     expect(host.reads).not.toContain("/work/other/a.ts");
   });
 
+  test("without the editor mod, a click made before switching to the same path on another machine previews nothing", async () => {
+    host.files.set("/work/app/a.ts", "local");
+    const v = start();
+    v.openInEditor("a.ts", cx);
+    host.spaces = [{ id: "s1", active: true, folder: "/space", machine: "vps", tabs: [{ id: "t1", active: true }] }];
+    v.refresh(cx);
+    await settle();
+    expect(FakeEditorState.created).toEqual([]);
+  });
+
   test("the check is cached for EDITOR_CHECK_MS", async () => {
     host.files.set(MOD_JSON, "{}");
     host.onRun = (command) => {

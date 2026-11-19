@@ -241,13 +241,17 @@ class OpenView extends View {
     const props2 = { key: id("e"), file, on, tab: this.tab, before };
     const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props: props2 };
     cx.spawn(async (cx2) => {
-      let code = 0;
+      let problem = null;
       try {
-        code = (await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN])).code;
-      } catch {}
-      if (code === 3) {
+        const r = await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN]);
+        if (r.code === 3)
+          problem = NO_CLI;
+      } catch (e) {
+        problem = `Cannot open a new editor pane: ${String(e)}`;
+      }
+      if (problem) {
         this.done = false;
-        this.notice = NO_CLI;
+        this.notice = problem;
         cx2.notify();
         return;
       }

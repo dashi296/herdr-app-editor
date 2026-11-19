@@ -152,15 +152,17 @@ export class OpenView extends View {
     const props = { key: id("e"), file, on, tab: this.tab, before };
     const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props };
     cx.spawn(async (cx) => {
-      let code = 0;
+      let problem: string | null = null;
       try {
-        code = (await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN])).code;
-      } catch {
-        /* the background part may still run; nothing more to do from here */
+        const r = await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN]);
+        if (r.code === 3) problem = NO_CLI;
+      } catch (e) {
+        // sh did not start (none on Windows, or a spawn error): no background split exists either.
+        problem = `Cannot open a new editor pane: ${String(e)}`;
       }
-      if (code === 3) {
+      if (problem) {
         this.done = false; // the person can fix it and press Enter again
-        this.notice = NO_CLI; // above the list, which stays on screen: Enter opens what is shown
+        this.notice = problem; // above the list, which stays on screen: Enter opens what is shown
         cx.notify();
         return;
       }
