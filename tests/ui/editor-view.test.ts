@@ -165,10 +165,21 @@ describe("init", () => {
     expect(owners.every((o) => /^m[0-9a-z]+$/.test(o!))).toBe(true);
   });
 
-  test("after its first file loads, a pane reports it in shared state (the quick open overlay waits for it)", async () => {
+  test("after its first load, a focused pane that no registry entry names registers itself", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    host.focused = { pane: "e9" };
     await opened();
-    const loaded = (host.shared.get(SHARED_KEY) as { loaded?: Record<string, number> }).loaded;
-    expect(loaded?.k1).toEqual(expect.any(Number));
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, { pane: string }> }).registry;
+    expect(reg.k1).toMatchObject({ pane: "e9", tab: "t1" });
+  });
+
+  test("it does not take over a pane another key already names", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    host.focused = { pane: "e9" };
+    host.shared.set(SHARED_KEY, { registry: { other: { pane: "e9", tab: "t1", lastFocus: 1 } } });
+    await opened();
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, { pane: string }> }).registry;
+    expect(Object.keys(reg)).toEqual(["other"]);
   });
 
   test("an empty editor shows Open file… and the bound key", async () => {

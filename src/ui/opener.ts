@@ -29,7 +29,20 @@ export interface OpenResult {
 
 type SharedState = { registry?: Registry } & Record<string, unknown>;
 const readShared = () => (shared(SHARED_KEY) ?? {}) as SharedState;
-const id = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+/** The editor a file in `tab` goes to: the most recently focused live editor there, if any. */
+export function editorIn(tab: string): { key: string; pane: string } | null {
+  const all = panes();
+  return pickTarget(pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR), all, MOD_EDITOR, tab);
+}
+
+/** Shows that editor and sends it the file. */
+export function sendTo(target: { key: string; pane: string }, file: string, on: string | null): void {
+  // pane.focus first: FIFO delivery makes the editor shown when "open" arrives (spike S5).
+  run("pane.focus", { pane: target.pane });
+  run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+}
+
+export const id = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 export class EditorOpener {
   /** A split is being registered: a second split would make the new pane ambiguous
@@ -43,12 +56,9 @@ export class EditorOpener {
     if (this.splitting) return new Promise((resolve) => this.queued.push({ request, resolve }));
     const { file, on, tab, newPane } = request;
     const all = panes();
-    const registry = pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR);
-    const target = newPane ? null : pickTarget(registry, all, MOD_EDITOR, tab);
+    const target = newPane ? null : editorIn(tab);
     if (target) {
-      // pane.focus first: FIFO delivery makes the editor shown when "open" arrives (spike S5).
-      run("pane.focus", { pane: target.pane });
-      run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+      sendTo(target, file, on);
       return Promise.resolve({ key: target.key, split: false });
     }
     const inTab = all.filter((p) => p.tab === tab);

@@ -1008,7 +1008,7 @@ class EditorView extends View {
         await this.openFile(target.file, target.on, cx2);
       else
         this.screen = { kind: "empty" };
-      this.markLoaded();
+      this.claimFocusedPane();
       cx2.notify();
     });
     cx.spawn(async (cx2) => {
@@ -1385,12 +1385,17 @@ class EditorView extends View {
       }
     }
   }
-  markLoaded() {
+  claimFocusedPane() {
+    const pane = focused()?.pane;
+    const me = pane ? panes().find((p) => p.pane === pane && p.mod === MOD_EDITOR) : undefined;
+    if (!me)
+      return;
     const s = readShared();
-    const live = new Set(Object.keys(pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR)));
-    const loaded = Object.fromEntries(Object.entries(s.loaded ?? {}).filter(([k]) => live.has(k)));
-    loaded[this.key] = Date.now();
-    setShared(SHARED_KEY, { ...s, loaded });
+    const registry = pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR);
+    if (Object.values(registry).some((e) => e.pane === me.pane))
+      return;
+    registry[this.key] = { pane: me.pane, tab: me.tab, lastFocus: Date.now() };
+    setShared(SHARED_KEY, { ...s, registry });
   }
   register() {
     const f = focused();

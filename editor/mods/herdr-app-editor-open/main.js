@@ -2,7 +2,7 @@
 // src/ui/open-view.ts
 import { View, div } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
-import { checking, closeOverlay, exec, props, shared as shared2, window } from "herdr";
+import { appHome, checking, closeOverlay, exec, focused as focused3, panes as panes3, props, window } from "herdr";
 
 // src/core/names.ts
 var NS = "herdr-app-editor";
@@ -88,84 +88,21 @@ function pickTarget(reg, panes2, mod, tab) {
   }
   return best && { key: best.key, pane: best.pane };
 }
-function newPaneAfterSplit(before, after, mod, tab) {
-  const known = new Set(before);
-  const fresh = after.filter((p) => p.mod === mod && p.tab === tab && !known.has(p.pane));
-  return fresh.length === 1 ? fresh[0].pane : null;
-}
 function encodeCommand(verb, payload) {
   return `${verb}:${JSON.stringify(payload)}`;
 }
 
 // src/ui/opener.ts
 var readShared = () => shared(SHARED_KEY) ?? {};
-var id = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-
-class EditorOpener {
-  splitting = false;
-  queued = [];
-  open(request, cx) {
-    if (this.splitting)
-      return new Promise((resolve) => this.queued.push({ request, resolve }));
-    const { file, on, tab, newPane } = request;
-    const all = panes2();
-    const registry = pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR);
-    const target = newPane ? null : pickTarget(registry, all, MOD_EDITOR, tab);
-    if (target) {
-      run("pane.focus", { pane: target.pane });
-      run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
-      return Promise.resolve({ key: target.key, split: false });
-    }
-    const inTab = all.filter((p) => p.tab === tab);
-    const f = focused2();
-    const base = inTab.find((p) => p.pane === f?.pane) ?? inTab[0];
-    if (!base)
-      return Promise.resolve(null);
-    const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
-    const key = id("e");
-    this.splitting = true;
-    try {
-      run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key, file, on } });
-    } catch (e) {
-      this.splitting = false;
-      this.drain(cx);
-      throw e;
-    }
-    return new Promise((resolve) => {
-      cx.spawn(async (cx2) => {
-        let result = null;
-        try {
-          for (let i = 0;i < 30; i++) {
-            await cx2.sleep(100);
-            const pane = newPaneAfterSplit(before, panes2(), MOD_EDITOR, tab);
-            if (!pane)
-              continue;
-            const now = readShared();
-            const reg = pruneRegistry(now.registry ?? {}, panes2(), MOD_EDITOR);
-            reg[key] = { pane, tab, lastFocus: Date.now() };
-            setShared(SHARED_KEY, { ...now, registry: reg });
-            result = { key, split: true };
-            return;
-          }
-        } finally {
-          this.splitting = false;
-          resolve(result);
-          this.drain(cx2);
-        }
-      });
-    });
-  }
-  drain(cx) {
-    while (this.queued.length && !this.splitting) {
-      const { request, resolve } = this.queued.shift();
-      try {
-        this.open(request, cx).then(resolve);
-      } catch {
-        resolve(null);
-      }
-    }
-  }
+function editorIn(tab) {
+  const all = panes2();
+  return pickTarget(pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR), all, MOD_EDITOR, tab);
 }
+function sendTo(target, file, on) {
+  run("pane.focus", { pane: target.pane });
+  run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+}
+var id = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 // src/ui/palette.ts
 import { theme } from "herdr";
@@ -199,9 +136,7 @@ function palette() {
 // src/ui/open-view.ts
 var GIT_ARGS = ["ls-files", "-co", "--exclude-standard", "-z"];
 var FIND_ARGS = [".", "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*"];
-var LOAD_WAIT_MS = 5000;
-var LOAD_POLL_MS = 50;
-var loadedAt = (key) => shared2(SHARED_KEY)?.loaded?.[key];
+var SPLIT_SCRIPT = 'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' + '(sleep 0.3; HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
 
 class OpenView extends View {
   handle = null;
@@ -214,7 +149,7 @@ class OpenView extends View {
   done = false;
   loc = null;
   tab = null;
-  opener = new EditorOpener;
+  base = null;
   cx = null;
   init(_props, cx) {
     this.handle = cx.focus_handle();
@@ -230,6 +165,9 @@ class OpenView extends View {
     this.input.focus();
     this.loc = currentLocation();
     this.tab = activeTab();
+    const f = focused3()?.pane;
+    const inTab = panes3().filter((p) => p.tab === this.tab);
+    this.base = (inTab.find((p) => p.pane === f) ?? inTab[0])?.pane ?? null;
     const { cwd, on } = this.loc;
     if (!cwd || !this.tab) {
       this.state = { kind: "message", text: "No folder to search here." };
@@ -266,15 +204,22 @@ class OpenView extends View {
     if (this.done || !path || !this.loc?.cwd || !this.tab || !cx)
       return;
     this.done = true;
-    this.state = { kind: "opening", path };
-    const opened = this.opener.open({ file: `${this.loc.cwd}/${path}`, on: this.loc.on, tab: this.tab, newPane }, cx);
-    cx.spawn(async (cx2) => {
+    const file = `${this.loc.cwd}/${path}`, on = this.loc.on;
+    const target = newPane ? null : editorIn(this.tab);
+    if (target) {
+      sendTo(target, file, on);
+      this.dismiss();
+      return;
+    }
+    if (!this.base) {
+      this.dismiss();
+      return;
+    }
+    const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props: { key: id("e"), file, on } };
+    cx.spawn(async () => {
       try {
-        const result = await opened;
-        if (result?.split)
-          for (let waited = 0;waited < LOAD_WAIT_MS && loadedAt(result.key) === undefined; waited += LOAD_POLL_MS)
-            await cx2.sleep(LOAD_POLL_MS);
-      } finally {
+        await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome()]);
+      } catch {} finally {
         this.dismiss();
       }
     });
@@ -297,7 +242,7 @@ class OpenView extends View {
   }
   render(_cx) {
     const t = palette();
-    const body = this.state.kind === "loading" ? [div().p(8).text_color(t.dim).child("Loading…")] : this.state.kind === "message" ? [div().p(8).text_color(t.dim).child(this.state.text)] : this.state.kind === "opening" ? [div().p(8).text_color(t.dim).child(`Opening ${this.state.path}…`)] : this.shown.length === 0 ? [div().p(8).text_color(t.dim).child("No files match.")] : this.shown.map((path, i) => h_flex().id(`open-row-${i}`).h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().when(i === this.at, (el) => el.bg(t.hover)).hover((s) => s.bg(t.hover)).on_click((ev) => this.choose(i, Boolean(window()?.platform === "macos" ? ev?.modifiers?.platform : ev?.modifiers?.control))).child(div().flex_1().min_w(0).truncate().child(path)));
+    const body = this.state.kind === "loading" ? [div().p(8).text_color(t.dim).child("Loading…")] : this.state.kind === "message" ? [div().p(8).text_color(t.dim).child(this.state.text)] : this.shown.length === 0 ? [div().p(8).text_color(t.dim).child("No files match.")] : this.shown.map((path, i) => h_flex().id(`open-row-${i}`).h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().when(i === this.at, (el) => el.bg(t.hover)).hover((s) => s.bg(t.hover)).on_click((ev) => this.choose(i, Boolean(window()?.platform === "macos" ? ev?.modifiers?.platform : ev?.modifiers?.control))).child(div().flex_1().min_w(0).truncate().child(path)));
     return v_flex().id("quick-open").track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx)).size_full().min_h(0).p(14).gap(8).bg(t.popover).text_color(t.foreground).text_size(13).child(h_flex().h(36).flex_none().px(10).items_center().rounded(9).border_1().border_color(t.accent).bg(t.background).child(Input.new(this.input).flex_1().h_full())).children(this.truncated ? [div().text_size(11).text_color(t.dim).child(`Showing the first ${LIST_LIMIT} files`)] : []).child(v_flex().id("open-list").flex_1().min_h(0).overflow_y_scroll().children(body));
   }
 }

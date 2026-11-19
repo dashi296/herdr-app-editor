@@ -66,6 +66,14 @@ function encodeCommand(verb, payload) {
 
 // src/ui/opener.ts
 var readShared = () => shared(SHARED_KEY) ?? {};
+function editorIn(tab) {
+  const all = panes2();
+  return pickTarget(pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR), all, MOD_EDITOR, tab);
+}
+function sendTo(target, file, on) {
+  run("pane.focus", { pane: target.pane });
+  run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+}
 var id = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 class EditorOpener {
@@ -76,11 +84,9 @@ class EditorOpener {
       return new Promise((resolve) => this.queued.push({ request, resolve }));
     const { file, on, tab, newPane } = request;
     const all = panes2();
-    const registry = pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR);
-    const target = newPane ? null : pickTarget(registry, all, MOD_EDITOR, tab);
+    const target = newPane ? null : editorIn(tab);
     if (target) {
-      run("pane.focus", { pane: target.pane });
-      run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+      sendTo(target, file, on);
       return Promise.resolve({ key: target.key, split: false });
     }
     const inTab = all.filter((p) => p.tab === tab);

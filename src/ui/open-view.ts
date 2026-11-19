@@ -1,29 +1,29 @@
 // Quick open (#29): a popup that lists the files of the focused folder, filters them as the person
 // types and opens the chosen one in an editor pane. The target tab and folder are taken when the
 // overlay opens; while it is shown, focused() still reports the pane underneath (spike S9).
+// The overlay never creates a pane itself: Herdr ties a pane created while an overlay is open to that
+// overlay, and releases its file reads and editor state when the overlay closes (device tests S10,
+// S11). A file for an existing editor goes as a command; a new editor pane is split by a detached
+// `herdr-app do pane.split` that runs after the overlay has closed.
 import { View, div, type AsyncContext, type Context, type Element, type KeyEvent } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
-import { checking, closeOverlay, exec, props, shared, window } from "herdr";
-import { SHARED_KEY } from "../core/names";
+import { appHome, checking, closeOverlay, exec, focused, panes, props, window } from "herdr";
+import { MOD_EDITOR } from "../core/names";
 import { LIST_LIMIT, SHOW_LIMIT, parseLines, parseNul, rankPaths } from "../core/quick-open/match";
 import { activeTab, currentLocation, type Location } from "./location";
-import { EditorOpener } from "./opener";
+import { editorIn, id, sendTo } from "./opener";
 import { palette } from "./palette";
 
 const GIT_ARGS = ["ls-files", "-co", "--exclude-standard", "-z"];
 const FIND_ARGS = [".", "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*"];
 
-/** How long the overlay waits for a newly split editor to report it loaded before closing anyway. */
-export const LOAD_WAIT_MS = 5000;
-const LOAD_POLL_MS = 50;
+/** Run as `sh -c SPLIT_SCRIPT sh <pane.split args JSON> <app home>`: returns at once and splits the
+ *  pane 0.3 s later, after the overlay has closed. */
+export const SPLIT_SCRIPT =
+  'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' +
+  '(sleep 0.3; HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
 
-type State =
-  | { kind: "loading" }
-  | { kind: "message"; text: string }
-  | { kind: "ready" }
-  | { kind: "opening"; path: string };
-
-const loadedAt = (key: string) => (shared(SHARED_KEY) as { loaded?: Record<string, number> } | null)?.loaded?.[key];
+type State = { kind: "loading" } | { kind: "message"; text: string } | { kind: "ready" };
 
 export class OpenView extends View {
   private handle: ReturnType<AsyncContext["focus_handle"]> | null = null;
@@ -36,7 +36,8 @@ export class OpenView extends View {
   private done = false;
   private loc: Location | null = null;
   private tab: string | null = null;
-  private opener = new EditorOpener();
+  /** The pane focused when the overlay opened: a new editor pane splits next to it. */
+  private base: string | null = null;
   private cx: AsyncContext | null = null;
 
   override init(_props: unknown, cx: AsyncContext): void {
@@ -52,6 +53,9 @@ export class OpenView extends View {
     this.input.focus();
     this.loc = currentLocation();
     this.tab = activeTab();
+    const f = focused()?.pane;
+    const inTab = panes().filter((p) => p.tab === this.tab);
+    this.base = (inTab.find((p) => p.pane === f) ?? inTab[0])?.pane ?? null;
     const { cwd, on } = this.loc;
     if (!cwd || !this.tab) {
       this.state = { kind: "message", text: "No folder to search here." };
@@ -87,25 +91,30 @@ export class OpenView extends View {
     closeOverlay(String((props() as { overlay?: string } | null)?.overlay));
   }
 
-  /**
-   * Opens shown[i] once, then closes the overlay. After splitting a new editor pane the overlay stays
-   * (showing "Opening…") until that pane reports its first load, at most LOAD_WAIT_MS: a pane's first
-   * file reads never finish if the overlay that created it is already gone (device test S10), and
-   * the opener registers the new pane from this overlay's task.
-   */
+  /** Opens shown[i] once and closes the overlay. */
   private choose(i: number, newPane: boolean) {
     const path = this.shown[i];
     const cx = this.cx;
     if (this.done || !path || !this.loc?.cwd || !this.tab || !cx) return;
     this.done = true;
-    this.state = { kind: "opening", path };
-    const opened = this.opener.open({ file: `${this.loc.cwd}/${path}`, on: this.loc.on, tab: this.tab, newPane }, cx);
-    cx.spawn(async (cx) => {
+    const file = `${this.loc.cwd}/${path}`,
+      on = this.loc.on;
+    const target = newPane ? null : editorIn(this.tab);
+    if (target) {
+      sendTo(target, file, on);
+      this.dismiss();
+      return;
+    }
+    if (!this.base) {
+      this.dismiss();
+      return;
+    }
+    const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props: { key: id("e"), file, on } };
+    cx.spawn(async () => {
       try {
-        const result = await opened;
-        if (result?.split)
-          for (let waited = 0; waited < LOAD_WAIT_MS && loadedAt(result.key) === undefined; waited += LOAD_POLL_MS)
-            await cx.sleep(LOAD_POLL_MS);
+        await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome()]);
+      } catch {
+        /* nothing more to do from here: the overlay is closing */
       } finally {
         this.dismiss();
       }
@@ -131,29 +140,27 @@ export class OpenView extends View {
         ? [div().p(8).text_color(t.dim).child("Loading…")]
         : this.state.kind === "message"
           ? [div().p(8).text_color(t.dim).child(this.state.text)]
-          : this.state.kind === "opening"
-            ? [div().p(8).text_color(t.dim).child(`Opening ${this.state.path}…`)]
-            : this.shown.length === 0
-              ? [div().p(8).text_color(t.dim).child("No files match.")]
-              : this.shown.map((path, i) =>
-                  h_flex()
-                    .id(`open-row-${i}`)
-                    .h(28)
-                    .flex_none()
-                    .px(8)
-                    .items_center()
-                    .rounded(7)
-                    .cursor_pointer()
-                    .when(i === this.at, (el: Element) => el.bg(t.hover))
-                    .hover((s: Element) => s.bg(t.hover))
-                    .on_click((ev: { modifiers?: KeyEvent["modifiers"] }) =>
-                      this.choose(
-                        i,
-                        Boolean(window()?.platform === "macos" ? ev?.modifiers?.platform : ev?.modifiers?.control),
-                      ),
-                    )
-                    .child(div().flex_1().min_w(0).truncate().child(path)),
-                );
+          : this.shown.length === 0
+            ? [div().p(8).text_color(t.dim).child("No files match.")]
+            : this.shown.map((path, i) =>
+                h_flex()
+                  .id(`open-row-${i}`)
+                  .h(28)
+                  .flex_none()
+                  .px(8)
+                  .items_center()
+                  .rounded(7)
+                  .cursor_pointer()
+                  .when(i === this.at, (el: Element) => el.bg(t.hover))
+                  .hover((s: Element) => s.bg(t.hover))
+                  .on_click((ev: { modifiers?: KeyEvent["modifiers"] }) =>
+                    this.choose(
+                      i,
+                      Boolean(window()?.platform === "macos" ? ev?.modifiers?.platform : ev?.modifiers?.control),
+                    ),
+                  )
+                  .child(div().flex_1().min_w(0).truncate().child(path)),
+              );
     return v_flex()
       .id("quick-open")
       .track_focus(this.handle!)
