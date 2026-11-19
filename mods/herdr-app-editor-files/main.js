@@ -3,7 +3,8 @@
 // Modified from herdrdev/herdr-app defaults/mods/files/main.js (5216e6f), Apache-2.0
 // (LICENSE next to the built main.js; vendor/herdr-files/LICENSE in the repository).
 // Changes by herdr-app-editor, marked "herdr-app-editor:" in the source:
-//   - clicking a file opens it in the editor mod instead of the read-only preview (plan §3)
+//   - clicking a file opens it in the editor mod when that mod is installed; otherwise the read-only
+//     preview as upstream (plan §3, #29)
 //   - icon paths point at this mod's own folder
 //   - while an editor pane has focus, the tree follows a terminal in the same tab
 //   - the pending folder watch is cancelled when the folder changes or the copy closes
@@ -12,7 +13,7 @@
 // src/entries/editor-files.js
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { exec, readTextFile, watchFolder, theme, settings, window } from "herdr";
+import { appHome, exec, readTextFile, watchFolder, theme, settings, window } from "herdr";
 
 // src/core/names.ts
 var NS = "herdr-app-editor";
@@ -126,6 +127,14 @@ class EditorOpener {
 
 // src/entries/editor-files.js
 var key = () => JSON.stringify(currentLocation());
+var EDITOR_CHECK_MS = 5000;
+async function editorInstalled() {
+  try {
+    return await readTextFile(`${appHome()}/mods/${MOD_EDITOR}/mod.json`) !== null;
+  } catch {
+    return false;
+  }
+}
 var LANG = {
   ts: "js",
   tsx: "js",
@@ -321,7 +330,17 @@ class Files extends View {
     const tab = activeTab();
     if (!tab)
       return;
-    (this.opener ??= new EditorOpener).open({ file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane }, cx);
+    const request = { file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane };
+    cx.spawn(async (cx2) => {
+      const now = Date.now();
+      if (!this.editorCheck || now - this.editorCheck.at >= EDITOR_CHECK_MS)
+        this.editorCheck = { at: now, installed: await editorInstalled() };
+      if (this.editorCheck.installed)
+        (this.opener ??= new EditorOpener).open(request, cx2);
+      else
+        this.show(path, cx2);
+      cx2.notify();
+    });
   }
   show(path, cx) {
     this.code?.release();
@@ -394,5 +413,6 @@ class Files extends View {
   }
 }
 export {
-  Files as default
+  Files as default,
+  EDITOR_CHECK_MS
 };

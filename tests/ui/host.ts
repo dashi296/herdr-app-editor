@@ -161,6 +161,9 @@ export const host = {
   texts: [] as string[],
   keys: [] as { section: string; keys: string; action: string }[],
   checking: false,
+  /** readTextFile serves these; every path asked for is recorded in reads. */
+  files: new Map<string, string>(),
+  reads: [] as string[],
 };
 
 export function reset() {
@@ -181,6 +184,8 @@ export function reset() {
   host.texts = [];
   host.keys = [];
   host.checking = false;
+  host.files = new Map();
+  host.reads = [];
   FakeEditorState.created = [];
   FakeInputState.created = [];
 }
@@ -236,8 +241,10 @@ export function install() {
     appHome: () => host.appHome,
     keys: () => host.keys,
     checking: () => host.checking,
-    // Used by src/adapters; not exercised by the tests yet.
-    readTextFile: async () => null,
+    readTextFile: async (path: string) => {
+      host.reads.push(path);
+      return host.files.get(path) ?? null;
+    },
     writeTextFile: async () => {},
   }));
 }
