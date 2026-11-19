@@ -161,3 +161,8 @@ Files のフォークにある「開く」処理（既存 pane の選択 `pickTa
   - 両方入れると、クリックで editor が開く。cmd-click で新しい pane に開く。
   - 3つの mod が `herdr-app check` を通る。`herdr-app status` の `errors` が空。
 - 2つの公開物が herdr.dev の mods に載る。
+
+## 実装時の変更（2026-11-19、実機確認 S10・S11）
+
+- オーバーレイが開いている間に作られた pane は、オーバーレイが閉じると最初のファイル読み込みが止まり、作った `EditorState` も解放される（Herdr 0.1.16）。そのため、オーバーレイは自分で pane を作らない。既存の editor の pane には今どおり `open` 命令を送る。新しい pane が必要なときは、オーバーレイを閉じ、0.3 秒後に `herdr-app do pane.split` を実行する処理をバックグラウンドで起動する（`sh` と `herdr-app` を使う）。
+- 新しい pane は、最初の読み込みの後、フォーカスがあり未登録なら自分を `registry` に登録する。
