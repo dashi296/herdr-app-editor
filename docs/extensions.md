@@ -1,6 +1,6 @@
 # Extensions
 
-The editor has three extension points (issue #1 P2). Extensions are plain TypeScript objects compiled into `mods/herdr-app-editor/main.js`; there is no runtime loader. Herdr has no "mods of mods" mechanism.
+The editor has three extension points (issue #1 P2). Extensions are plain TypeScript objects compiled into `editor/mods/herdr-app-editor/main.js`; there is no runtime loader. Herdr has no "mods of mods" mechanism.
 
 ```ts
 import type { Extension } from "../core/extensions/registry";
@@ -16,7 +16,7 @@ export const myExtension: Extension = {
 };
 ```
 
-Enable an extension by adding it to `EXTENSIONS` in `src/extensions/index.ts`, then run `bun run install:herdr`. The list is empty by default, so files are saved exactly as edited.
+Enable an extension by adding it to `EXTENSIONS` in `src/extensions/index.ts`, then run `bun run build` and copy `editor/mods/herdr-app-editor` into `~/.config/herdr-app/mods/`. The list is empty by default, so files are saved exactly as edited.
 
 ## Rules
 
