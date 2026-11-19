@@ -23,13 +23,13 @@ export function parseNul(stdout: string, limit: number): FileList {
   );
 }
 
-/** `find . -type f` output: one `./path` per line. */
-export function parseLines(stdout: string, limit: number): FileList {
+/** `find . … -print0` output: NUL-separated `./path`s (a newline inside a name stays in it). */
+export function parseFind(stdout: string, limit: number): FileList {
   return take(
     stdout
-      .split("\n")
-      .filter((l) => l.trim() !== "")
-      .map((l) => (l.startsWith("./") ? l.slice(2) : l)),
+      .split("\0")
+      .filter((p) => p !== "")
+      .map((p) => (p.startsWith("./") ? p.slice(2) : p)),
     limit,
   );
 }

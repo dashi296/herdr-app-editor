@@ -84,8 +84,9 @@ export class FakeInputState {
     this.text = text;
     this.handlers.change?.(null, cx);
   }
-  submit(cx: unknown) {
-    this.handlers.submit?.(null, cx);
+  /** Enter in the field; `secondary` is cmd on macOS, ctrl elsewhere (gpui-base InputEvent). */
+  submit(cx: unknown, event: { secondary?: boolean } = {}) {
+    this.handlers.submit?.(event, cx);
   }
 }
 

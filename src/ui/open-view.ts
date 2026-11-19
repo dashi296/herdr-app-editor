@@ -8,20 +8,46 @@
 import { View, div, type AsyncContext, type Context, type Element, type KeyEvent } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
 import { appHome, checking, closeOverlay, exec, focused, panes, props, window } from "herdr";
-import { MOD_EDITOR } from "../core/names";
-import { LIST_LIMIT, SHOW_LIMIT, parseLines, parseNul, rankPaths } from "../core/quick-open/match";
+import { MOD_EDITOR, MOD_OPEN } from "../core/names";
+import { LIST_LIMIT, SHOW_LIMIT, parseFind, parseNul, rankPaths } from "../core/quick-open/match";
 import { activeTab, currentLocation, type Location } from "./location";
 import { editorIn, id, sendTo } from "./opener";
 import { palette } from "./palette";
 
 const GIT_ARGS = ["ls-files", "-co", "--exclude-standard", "-z"];
-const FIND_ARGS = [".", "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*"];
+// Outside Git: every file to 12 levels down, without .git and node_modules, NUL-separated.
+const FIND_ARGS = [
+  ".",
+  "-maxdepth",
+  "12",
+  "(",
+  "-name",
+  ".git",
+  "-o",
+  "-name",
+  "node_modules",
+  ")",
+  "-prune",
+  "-o",
+  "-type",
+  "f",
+  "-print0",
+];
+/** A listing that takes longer is cut off (a terminal sitting in a huge folder such as ~). */
+export const LIST_TIMEOUT_MS = 10_000;
 
-/** Run as `sh -c SPLIT_SCRIPT sh <pane.split args JSON> <app home>`: returns at once and splits the
- *  pane 0.3 s later, after the overlay has closed. */
+/**
+ * Run as `sh -c SPLIT_SCRIPT sh <pane.split args JSON> <app home> <overlay mod>`. Exits 3 at once
+ * if `herdr-app` cannot be found. Otherwise it returns at once; in the background it waits until
+ * `herdr-app status` no longer lists the overlay (at most about 3 s), then splits the pane.
+ */
 export const SPLIT_SCRIPT =
   'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' +
-  '(sleep 0.3; HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
+  '[ -x "$cli" ] || exit 3; ' +
+  '(i=0; while [ "$i" -lt 60 ] && HERDR_APP_HOME="$2" "$cli" status 2>/dev/null | grep -qF "\\"$3\\""; ' +
+  "do sleep 0.05; i=$((i+1)); done; " +
+  'HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
+const NO_CLI = "Cannot open a new editor pane: the herdr-app command was not found (on PATH or in ~/.local/bin).";
 
 type State = { kind: "loading" } | { kind: "message"; text: string } | { kind: "ready" };
 
@@ -49,7 +75,8 @@ export class OpenView extends View {
       this.filter();
       cx.notify();
     });
-    this.input.on("submit", () => this.choose(this.at, false));
+    // Enter in the field; `secondary` is cmd on macOS, ctrl elsewhere: a new pane.
+    this.input.on("submit", (e: { secondary?: boolean } | null) => this.choose(this.at, Boolean(e?.secondary)));
     this.input.focus();
     this.loc = currentLocation();
     this.tab = activeTab();
@@ -63,13 +90,15 @@ export class OpenView extends View {
     }
     cx.spawn(async (cx) => {
       try {
-        const git = await exec("git", GIT_ARGS, { cwd, on });
+        const opts = { cwd, on, timeout: LIST_TIMEOUT_MS };
+        const git = await exec("git", GIT_ARGS, opts);
         const list =
           git.code === 0
             ? parseNul(git.stdout, LIST_LIMIT)
-            : await exec("find", FIND_ARGS, { cwd, on }).then((r) => {
-                if (r.code !== 0) throw new Error(r.stderr || `find exited with ${r.code}`);
-                return parseLines(r.stdout, LIST_LIMIT);
+            : await exec("find", FIND_ARGS, opts).then((r) => {
+                // find exits 1 when any folder is unreadable (~/Library on macOS) but lists the rest.
+                if (r.stdout === "" && r.code !== 0) throw new Error(r.stderr || `find exited with ${r.code}`);
+                return parseFind(r.stdout, LIST_LIMIT);
               });
         this.paths = list.paths;
         this.truncated = list.truncated;
@@ -109,15 +138,26 @@ export class OpenView extends View {
       this.dismiss();
       return;
     }
-    const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props: { key: id("e"), file, on } };
-    cx.spawn(async () => {
+    // `before` and `tab` let the new pane find itself among the editor panes (it cannot learn its own
+    // pane id, and nobody else is left to register it).
+    const before = panes()
+      .filter((p) => p.mod === MOD_EDITOR)
+      .map((p) => p.pane);
+    const props = { key: id("e"), file, on, tab: this.tab, before };
+    const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props };
+    cx.spawn(async (cx) => {
+      let code = 0;
       try {
-        await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome()]);
+        code = (await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN])).code;
       } catch {
-        /* nothing more to do from here: the overlay is closing */
-      } finally {
-        this.dismiss();
+        /* the background part may still run; nothing more to do from here */
       }
+      if (code === 3) {
+        this.state = { kind: "message", text: NO_CLI };
+        cx.notify();
+        return;
+      }
+      this.dismiss();
     });
   }
 

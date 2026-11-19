@@ -52,6 +52,7 @@ import {
   handleReply,
   idleRouting,
   interacted,
+  newPaneAfterSplit,
   pruneRegistry,
   type Choice,
   type Effect,
@@ -197,7 +198,7 @@ export abstract class EditorView extends View {
       if (seq !== this.openSeq) return;
       if (target.file) await this.openFile(target.file, target.on, cx);
       else this.screen = { kind: "empty" };
-      this.claimFocusedPane();
+      this.claimNewPane();
       cx.notify();
     });
     cx.spawn(async (cx) => {
@@ -619,30 +620,35 @@ export abstract class EditorView extends View {
   }
 
   /**
-   * After the first load: a pane split by a detached `herdr-app do pane.split` (the quick open
-   * overlay) has nobody to register it. The split focuses it, so a focused editor pane that no entry
-   * names yet is this one.
+   * After the first load, for a pane split by quick open (props `before` and `tab`): nobody else is
+   * left to register it, and it cannot learn its own pane id. Its pane is the one editor pane in
+   * that tab that was not there before the split; with more than one candidate it registers nothing
+   * and waits for its editor to get focus (register()).
    */
-  private claimFocusedPane() {
-    const pane = focused()?.pane;
-    const me = pane ? panes().find((p) => p.pane === pane && p.mod === MOD_EDITOR) : undefined;
-    if (!me) return;
-    const s = readShared();
-    const registry = pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR);
-    if (Object.values(registry).some((e) => e.pane === me.pane)) return;
-    registry[this.key] = { pane: me.pane, tab: me.tab, lastFocus: Date.now() };
-    setShared(SHARED_KEY, { ...s, registry });
+  private claimNewPane() {
+    const p = (props() ?? {}) as { before?: unknown; tab?: unknown };
+    if (!Array.isArray(p.before) || typeof p.tab !== "string") return;
+    const pane = newPaneAfterSplit(p.before.map(String), panes(), MOD_EDITOR, p.tab);
+    if (pane) this.writeEntry(pane, p.tab);
   }
 
   /** Records this pane as the latest focused editor. The "focus" command reaches the focused copy. */
   private register() {
-    const f = focused();
-    const pane = f?.pane;
-    if (!pane || !panes().some((p) => p.pane === pane && p.mod === MOD_EDITOR)) return;
-    const me = panes().find((p) => p.pane === pane)!;
+    const pane = focused()?.pane;
+    const me = pane ? panes().find((p) => p.pane === pane && p.mod === MOD_EDITOR) : undefined;
+    if (me) this.writeEntry(me.pane, me.tab);
+  }
+
+  /** registry[this.key] = pane, dropping any other key that names the same pane (a key a keyless
+   *  pane had before a restart or reload would otherwise get the next file). */
+  private writeEntry(pane: string, tab: string) {
     const s = readShared();
-    const registry = pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR);
-    registry[this.key] = { pane, tab: me.tab, lastFocus: Date.now() };
+    const registry = Object.fromEntries(
+      Object.entries(pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR)).filter(
+        ([k, e]) => k === this.key || e.pane !== pane,
+      ),
+    );
+    registry[this.key] = { pane, tab, lastFocus: Date.now() };
     setShared(SHARED_KEY, { ...s, registry });
   }
 

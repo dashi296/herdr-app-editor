@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { LIST_LIMIT, SHOW_LIMIT, parseLines, parseNul, rankPaths } from "../../src/core/quick-open/match";
+import { LIST_LIMIT, SHOW_LIMIT, parseFind, parseNul, rankPaths } from "../../src/core/quick-open/match";
 
 test("limits are the spec's values", () => {
   expect(LIST_LIMIT).toBe(20000);
@@ -9,9 +9,12 @@ test("parseNul drops the empty tail and stops at the limit", () => {
   expect(parseNul("a.ts\0b/c.ts\0", 10)).toEqual({ paths: ["a.ts", "b/c.ts"], truncated: false });
   expect(parseNul("a\0b\0c\0", 2)).toEqual({ paths: ["a", "b"], truncated: true });
 });
-test("parseLines strips ./ and blank lines", () => {
-  expect(parseLines("./a.ts\n./b/c.ts\n\n", 10)).toEqual({ paths: ["a.ts", "b/c.ts"], truncated: false });
-  expect(parseLines("./a\n./b\n./c\n", 2)).toEqual({ paths: ["a", "b"], truncated: true });
+test("parseFind reads find -print0 output: strips ./, keeps newlines inside names", () => {
+  expect(parseFind("./a.ts\0./b/c.ts\0./odd\nname\0", 10)).toEqual({
+    paths: ["a.ts", "b/c.ts", "odd\nname"],
+    truncated: false,
+  });
+  expect(parseFind("./a\0./b\0./c\0", 2)).toEqual({ paths: ["a", "b"], truncated: true });
 });
 test("an empty query keeps the order and the limit", () => {
   expect(rankPaths(["b", "a", "c"], "", 2)).toEqual(["b", "a"]);

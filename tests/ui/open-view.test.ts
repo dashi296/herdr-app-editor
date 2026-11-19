@@ -3,11 +3,11 @@
 // never creates a pane itself (device test S11): a new editor pane is split by a detached
 // `herdr-app do pane.split` that runs after the overlay has closed.
 import { beforeEach, describe, expect, test } from "bun:test";
-import { MOD_EDITOR, SHARED_KEY } from "../../src/core/names";
+import { MOD_EDITOR, MOD_OPEN, SHARED_KEY } from "../../src/core/names";
 import { FakeInputState, host, install, makeCx, reset, settle, type ExecOptions, type FakeCx } from "./host";
 
 install();
-const { OpenView, SPLIT_SCRIPT } = await import("../../src/ui/open-view");
+const { OpenView, SPLIT_SCRIPT, LIST_TIMEOUT_MS } = await import("../../src/ui/open-view");
 
 interface View {
   init(props: unknown, cx: FakeCx): void;
@@ -18,7 +18,24 @@ interface View {
 let cx: FakeCx;
 let calls: { cmd: string; args: string[]; opts?: ExecOptions | undefined }[];
 const GIT = ["ls-files", "-co", "--exclude-standard", "-z"];
-const FIND = [".", "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*"];
+const FIND = [
+  ".",
+  "-maxdepth",
+  "12",
+  "(",
+  "-name",
+  ".git",
+  "-o",
+  "-name",
+  "node_modules",
+  ")",
+  "-prune",
+  "-o",
+  "-type",
+  "f",
+  "-print0",
+];
+const OPTS = (on: string | null) => ({ cwd: "/work/app", on, timeout: LIST_TIMEOUT_MS });
 
 function gitFiles(paths: string[]) {
   host.exec = async (cmd, args, opts) => {
@@ -49,7 +66,7 @@ const split = () => {
         pane: string;
         direction: string;
         mod: string;
-        props: { key: string; file: string; on: string | null };
+        props: { key: string; file: string; on: string | null; tab: string; before: string[] };
       })
     : undefined;
 };
@@ -68,7 +85,7 @@ describe("listing", () => {
   test("lists git files of the focused terminal's folder", async () => {
     gitFiles(["src/a.ts", "README.md"]);
     const v = await start();
-    expect(calls[0]).toEqual({ cmd: "git", args: GIT, opts: { cwd: "/work/app", on: null } });
+    expect(calls[0]).toEqual({ cmd: "git", args: GIT, opts: OPTS(null) });
     expect(shown(v)).toEqual(expect.arrayContaining(["src/a.ts", "README.md"]));
   });
 
@@ -77,11 +94,33 @@ describe("listing", () => {
       calls.push({ cmd, args, opts });
       return cmd === "git"
         ? { code: 128, stdout: "", stderr: "not a git repository" }
-        : { code: 0, stdout: "./notes.txt\n", stderr: "" };
+        : { code: 0, stdout: "./notes.txt\0", stderr: "" };
     };
     const v = await start();
-    expect(calls[1]).toEqual({ cmd: "find", args: FIND, opts: { cwd: "/work/app", on: null } });
+    expect(calls[1]).toEqual({ cmd: "find", args: FIND, opts: OPTS(null) });
     expect(shown(v)).toContain("notes.txt");
+  });
+
+  test("find output is used even when find exits non-zero (an unreadable folder, as in ~/Library)", async () => {
+    host.exec = async (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      return cmd === "git"
+        ? { code: 128, stdout: "", stderr: "not a git repository" }
+        : { code: 1, stdout: "./notes.txt\0./a/b.txt\0", stderr: "find: ./Library: Operation not permitted" };
+    };
+    const v = await start();
+    expect(shown(v)).toEqual(expect.arrayContaining(["notes.txt", "a/b.txt"]));
+  });
+
+  test("find with no output and an error shows the error", async () => {
+    host.exec = async (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      return cmd === "git"
+        ? { code: 128, stdout: "", stderr: "" }
+        : { code: 1, stdout: "", stderr: "find: .: Permission denied" };
+    };
+    const v = await start();
+    expect(shown(v).some((t) => t.startsWith("Cannot list this folder") && t.includes("Permission denied"))).toBe(true);
   });
 
   test("shows that the list was cut", async () => {
@@ -94,7 +133,7 @@ describe("listing", () => {
     host.spaces = [{ id: "s1", active: true, folder: "/srv", machine: "vps", tabs: [{ id: "t1", active: true }] }];
     gitFiles(["a.ts"]);
     const v = await start();
-    expect(calls[0]!.opts).toEqual({ cwd: "/work/app", on: "vps" });
+    expect(calls[0]!.opts).toEqual(OPTS("vps"));
     v.onKey({ key: "enter", modifiers: {} }, cx);
     await settle();
     expect(split()!.props).toMatchObject({ file: "/work/app/a.ts", on: "vps" });
@@ -127,17 +166,50 @@ describe("filtering and choosing", () => {
     expect(host.run.filter((r) => r.command === "pane.split")).toEqual([]);
     const sh = calls.find((x) => x.cmd === "sh")!;
     expect(sh.args.slice(0, 3)).toEqual(["-c", SPLIT_SCRIPT, "sh"]);
-    expect(sh.args[4]).toBe("/fake-home");
+    expect(sh.args.slice(4)).toEqual(["/fake-home", MOD_OPEN]);
     expect(split()).toMatchObject({ pane: "p1", direction: "right", mod: MOD_EDITOR });
-    expect(split()!.props).toMatchObject({ file: "/work/app/src/b.ts", on: null, key: expect.stringMatching(/^e/) });
+    expect(split()!.props).toMatchObject({
+      file: "/work/app/src/b.ts",
+      on: null,
+      key: expect.stringMatching(/^e/),
+      tab: "t1",
+      before: [],
+    });
     expect(host.closed).toEqual(["ov1"]);
   });
 
-  test("the script waits, then runs herdr-app do pane.split in the background", () => {
-    expect(SPLIT_SCRIPT).toContain("sleep 0.3");
+  test("the script fails fast without herdr-app, then splits in the background once the overlay is gone", () => {
+    expect(SPLIT_SCRIPT).toContain("exit 3");
+    // Polls herdr-app status until the overlay ($3) is no longer listed, at most ~3 s, instead of a fixed delay.
+    expect(SPLIT_SCRIPT).toContain("status");
+    // The overlay name is matched as a JSON string ("…"), literally, so a longer name never matches.
+    expect(SPLIT_SCRIPT).toContain('grep -qF "\\"$3\\""');
+    expect(SPLIT_SCRIPT).not.toContain("sleep 0.3;");
     expect(SPLIT_SCRIPT).toContain('do pane.split "$1"');
     expect(SPLIT_SCRIPT).toContain('HERDR_APP_HOME="$2"');
     expect(SPLIT_SCRIPT.trim().endsWith("&")).toBe(true);
+  });
+
+  test("when herdr-app is missing the overlay stays open and says so", async () => {
+    host.exec = async (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      if (cmd === "git") return { code: 0, stdout: "a.ts\0", stderr: "" };
+      return { code: 3, stdout: "", stderr: "" };
+    };
+    const v = await start();
+    v.onKey({ key: "enter", modifiers: {} }, cx);
+    await settle();
+    expect(host.closed).toEqual([]);
+    expect(shown(v).some((t) => t.includes("herdr-app"))).toBe(true);
+  });
+
+  test("the new pane learns which editor panes existed before it, so it can find itself", async () => {
+    host.panes = [...host.panes, { pane: "e7", tab: "t9", mod: MOD_EDITOR }];
+    gitFiles(["a.ts"]);
+    const v = await start();
+    v.onKey({ key: "enter", modifiers: {} }, cx);
+    await settle();
+    expect(split()!.props.before).toEqual(["e7"]);
   });
 
   test("the file goes to the tab shown when the overlay opened, even after switching tabs", async () => {
@@ -194,6 +266,17 @@ describe("filtering and choosing", () => {
     const v = await start();
     v.onKey({ key: "enter", modifiers: { control: true } }, cx);
     await settle();
+    expect(split()).toBeDefined();
+  });
+
+  test("cmd-Enter in the input (submit with secondary) splits a new pane even when an editor exists", async () => {
+    host.panes = [...host.panes, { pane: "e1", tab: "t1", mod: MOD_EDITOR }];
+    host.shared.set(SHARED_KEY, { registry: { k1: { pane: "e1", tab: "t1", lastFocus: 1 } } });
+    gitFiles(["a.ts"]);
+    await start();
+    input().submit(cx, { secondary: true });
+    await settle();
+    expect(host.run).toEqual([]);
     expect(split()).toBeDefined();
   });
 

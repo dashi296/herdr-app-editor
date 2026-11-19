@@ -165,21 +165,50 @@ describe("init", () => {
     expect(owners.every((o) => /^m[0-9a-z]+$/.test(o!))).toBe(true);
   });
 
-  test("after its first load, a focused pane that no registry entry names registers itself", async () => {
-    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
-    host.focused = { pane: "e9" };
-    await opened();
+  test("a pane split by quick open registers the one new editor pane in its tab, focused or not", async () => {
+    host.panes = [
+      { pane: "e0", tab: "t1", mod: MOD_EDITOR },
+      { pane: "e9", tab: "t1", mod: MOD_EDITOR },
+    ];
+    host.focused = { pane: "p-elsewhere" };
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: ["e0"] };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
     const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, { pane: string }> }).registry;
-    expect(reg.k1).toMatchObject({ pane: "e9", tab: "t1" });
+    expect(reg).toEqual({ k1: expect.objectContaining({ pane: "e9", tab: "t1" }) });
   });
 
-  test("it does not take over a pane another key already names", async () => {
+  test("with two new editor panes it cannot tell which is its own, and registers neither", async () => {
+    host.panes = [
+      { pane: "e8", tab: "t1", mod: MOD_EDITOR },
+      { pane: "e9", tab: "t1", mod: MOD_EDITOR },
+    ];
+    host.focused = { pane: "e9" };
+    files.disk.set("/p/a.txt", "a");
+    host.props = { key: "k1", file: "/p/a.txt", tab: "t1", before: [] };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    expect((host.shared.get(SHARED_KEY) as { registry?: object } | undefined)?.registry ?? {}).toEqual({});
+  });
+
+  test("a pane opened without props.before does not register itself after loading", async () => {
     host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
     host.focused = { pane: "e9" };
-    host.shared.set(SHARED_KEY, { registry: { other: { pane: "e9", tab: "t1", lastFocus: 1 } } });
     await opened();
-    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, { pane: string }> }).registry;
-    expect(Object.keys(reg)).toEqual(["other"]);
+    expect((host.shared.get(SHARED_KEY) as { registry?: object } | undefined)?.registry ?? {}).toEqual({});
+  });
+
+  test("registering drops other keys that name the same pane (a key from before a restart)", async () => {
+    host.panes = [{ pane: "e9", tab: "t1", mod: MOD_EDITOR }];
+    host.focused = { pane: "e9" };
+    host.shared.set(SHARED_KEY, { registry: { old: { pane: "e9", tab: "t1", lastFocus: 1 } } });
+    const v = await opened();
+    await v.onCommand("focus", cx);
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, unknown> }).registry;
+    expect(Object.keys(reg)).toEqual(["k1"]);
   });
 
   test("an empty editor shows Open file… and the bound key", async () => {

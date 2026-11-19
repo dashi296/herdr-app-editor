@@ -722,6 +722,11 @@ function pruneRegistry(reg, panes, mod) {
   const live = liveEditors(panes, mod);
   return Object.fromEntries(Object.entries(reg).filter(([, e]) => live.has(e.pane)));
 }
+function newPaneAfterSplit(before, after, mod, tab) {
+  const known = new Set(before);
+  const fresh = after.filter((p) => p.mod === mod && p.tab === tab && !known.has(p.pane));
+  return fresh.length === 1 ? fresh[0].pane : null;
+}
 function encodeCommand(verb, payload) {
   return `${verb}:${JSON.stringify(payload)}`;
 }
@@ -1008,7 +1013,7 @@ class EditorView extends View {
         await this.openFile(target.file, target.on, cx2);
       else
         this.screen = { kind: "empty" };
-      this.claimFocusedPane();
+      this.claimNewPane();
       cx2.notify();
     });
     cx.spawn(async (cx2) => {
@@ -1385,27 +1390,24 @@ class EditorView extends View {
       }
     }
   }
-  claimFocusedPane() {
-    const pane = focused()?.pane;
-    const me = pane ? panes().find((p) => p.pane === pane && p.mod === MOD_EDITOR) : undefined;
-    if (!me)
+  claimNewPane() {
+    const p = props() ?? {};
+    if (!Array.isArray(p.before) || typeof p.tab !== "string")
       return;
-    const s = readShared();
-    const registry = pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR);
-    if (Object.values(registry).some((e) => e.pane === me.pane))
-      return;
-    registry[this.key] = { pane: me.pane, tab: me.tab, lastFocus: Date.now() };
-    setShared(SHARED_KEY, { ...s, registry });
+    const pane = newPaneAfterSplit(p.before.map(String), panes(), MOD_EDITOR, p.tab);
+    if (pane)
+      this.writeEntry(pane, p.tab);
   }
   register() {
-    const f = focused();
-    const pane = f?.pane;
-    if (!pane || !panes().some((p) => p.pane === pane && p.mod === MOD_EDITOR))
-      return;
-    const me = panes().find((p) => p.pane === pane);
+    const pane = focused()?.pane;
+    const me = pane ? panes().find((p) => p.pane === pane && p.mod === MOD_EDITOR) : undefined;
+    if (me)
+      this.writeEntry(me.pane, me.tab);
+  }
+  writeEntry(pane, tab) {
     const s = readShared();
-    const registry = pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR);
-    registry[this.key] = { pane, tab: me.tab, lastFocus: Date.now() };
+    const registry = Object.fromEntries(Object.entries(pruneRegistry(s.registry ?? {}, panes(), MOD_EDITOR)).filter(([k, e]) => k === this.key || e.pane !== pane));
+    registry[this.key] = { pane, tab, lastFocus: Date.now() };
     setShared(SHARED_KEY, { ...s, registry });
   }
   async act(a, cx) {

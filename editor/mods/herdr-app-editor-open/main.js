@@ -7,6 +7,7 @@ import { appHome, checking, closeOverlay, exec, focused as focused3, panes as pa
 // src/core/names.ts
 var NS = "herdr-app-editor";
 var MOD_EDITOR = "herdr-app-editor";
+var MOD_OPEN = "herdr-app-editor-open";
 var SHARED_KEY = NS;
 
 // src/core/quick-open/match.ts
@@ -18,9 +19,8 @@ function take(items, limit) {
 function parseNul(stdout, limit) {
   return take(stdout.split("\x00").filter((p) => p !== ""), limit);
 }
-function parseLines(stdout, limit) {
-  return take(stdout.split(`
-`).filter((l) => l.trim() !== "").map((l) => l.startsWith("./") ? l.slice(2) : l), limit);
+function parseFind(stdout, limit) {
+  return take(stdout.split("\x00").filter((p) => p !== "").map((p) => p.startsWith("./") ? p.slice(2) : p), limit);
 }
 function isSubsequence(query, text) {
   let i = 0;
@@ -135,8 +135,26 @@ function palette() {
 
 // src/ui/open-view.ts
 var GIT_ARGS = ["ls-files", "-co", "--exclude-standard", "-z"];
-var FIND_ARGS = [".", "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*"];
-var SPLIT_SCRIPT = 'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' + '(sleep 0.3; HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
+var FIND_ARGS = [
+  ".",
+  "-maxdepth",
+  "12",
+  "(",
+  "-name",
+  ".git",
+  "-o",
+  "-name",
+  "node_modules",
+  ")",
+  "-prune",
+  "-o",
+  "-type",
+  "f",
+  "-print0"
+];
+var LIST_TIMEOUT_MS = 1e4;
+var SPLIT_SCRIPT = 'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' + '[ -x "$cli" ] || exit 3; ' + '(i=0; while [ "$i" -lt 60 ] && HERDR_APP_HOME="$2" "$cli" status 2>/dev/null | grep -qF "\\"$3\\""; ' + "do sleep 0.05; i=$((i+1)); done; " + 'HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
+var NO_CLI = "Cannot open a new editor pane: the herdr-app command was not found (on PATH or in ~/.local/bin).";
 
 class OpenView extends View {
   handle = null;
@@ -161,7 +179,7 @@ class OpenView extends View {
       this.filter();
       cx2.notify();
     });
-    this.input.on("submit", () => this.choose(this.at, false));
+    this.input.on("submit", (e) => this.choose(this.at, Boolean(e?.secondary)));
     this.input.focus();
     this.loc = currentLocation();
     this.tab = activeTab();
@@ -175,11 +193,12 @@ class OpenView extends View {
     }
     cx.spawn(async (cx2) => {
       try {
-        const git = await exec("git", GIT_ARGS, { cwd, on });
-        const list = git.code === 0 ? parseNul(git.stdout, LIST_LIMIT) : await exec("find", FIND_ARGS, { cwd, on }).then((r) => {
-          if (r.code !== 0)
+        const opts = { cwd, on, timeout: LIST_TIMEOUT_MS };
+        const git = await exec("git", GIT_ARGS, opts);
+        const list = git.code === 0 ? parseNul(git.stdout, LIST_LIMIT) : await exec("find", FIND_ARGS, opts).then((r) => {
+          if (r.stdout === "" && r.code !== 0)
             throw new Error(r.stderr || `find exited with ${r.code}`);
-          return parseLines(r.stdout, LIST_LIMIT);
+          return parseFind(r.stdout, LIST_LIMIT);
         });
         this.paths = list.paths;
         this.truncated = list.truncated;
@@ -215,13 +234,20 @@ class OpenView extends View {
       this.dismiss();
       return;
     }
-    const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props: { key: id("e"), file, on } };
-    cx.spawn(async () => {
+    const before = panes3().filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
+    const props2 = { key: id("e"), file, on, tab: this.tab, before };
+    const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props: props2 };
+    cx.spawn(async (cx2) => {
+      let code = 0;
       try {
-        await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome()]);
-      } catch {} finally {
-        this.dismiss();
+        code = (await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN])).code;
+      } catch {}
+      if (code === 3) {
+        this.state = { kind: "message", text: NO_CLI };
+        cx2.notify();
+        return;
       }
+      this.dismiss();
     });
   }
   onKey(e, cx) {
