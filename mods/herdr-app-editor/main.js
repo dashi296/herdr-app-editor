@@ -41,6 +41,7 @@ import { appHome } from "herdr";
 // src/core/names.ts
 var NS = "herdr-app-editor";
 var MOD_EDITOR = "herdr-app-editor";
+var MOD_OPEN = "herdr-app-editor-open";
 var SHARED_KEY = NS;
 
 // src/adapters/herdr/slot-io.ts
@@ -447,6 +448,7 @@ import * as herdr from "herdr";
 import {
   closeOverlay,
   focused,
+  keys,
   nextCommand,
   openOverlay,
   panes,
@@ -979,11 +981,11 @@ class EditorView extends View {
       return;
     }
     this.handle = cx.focus_handle();
-    if (isChecking() || typeof p.key !== "string") {
-      this.screen = { kind: "message", text: "Open a file from the Files panel." };
+    if (isChecking()) {
+      this.screen = { kind: "empty" };
       return;
     }
-    this.key = p.key;
+    this.key = typeof p.key === "string" ? p.key : `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     this.deps = this.makeDeps();
     const t = this.deps.extensions.themes(BUILTIN_THEMES);
     this.themes = t.themes;
@@ -1002,7 +1004,7 @@ class EditorView extends View {
       if (target.file)
         await this.openFile(target.file, target.on, cx2);
       else
-        this.screen = { kind: "message", text: "Open a file from the Files panel." };
+        this.screen = { kind: "empty" };
       cx2.notify();
     });
     cx.spawn(async (cx2) => {
@@ -1458,6 +1460,8 @@ class EditorView extends View {
       if (!this.code)
         this.handle?.focus();
     });
+    if (this.screen.kind === "empty")
+      return root.child(this.renderEmpty(t));
     if (this.screen.kind !== "ready" || !this.doc || !this.code) {
       const text = this.screen.kind === "message" ? this.screen.text : "Loading…";
       return root.child(div().p(16).text_color(t.dim).child(text));
@@ -1492,6 +1496,13 @@ class EditorView extends View {
       }).flex_shrink_0()))
     ]));
     return root.child(header).children(banners).child(Editor.new(this.code).flex_1().min_h(0));
+  }
+  renderEmpty(t) {
+    const bound = keys().find((k) => k.action === `mod.open:${MOD_OPEN}`)?.keys;
+    return v_flex().p(16).gap(10).items_start().child(div().text_color(t.dim).child("No file open.")).child(h_flex().gap(8).items_center().child(this.button("open-file", "Open file…", t, () => {
+      this.register();
+      run("mod.open", { name: MOD_OPEN });
+    })).children(bound ? [div().text_size(12).text_color(t.dim).child(bound)] : []));
   }
   button(id, label, t, onClick) {
     return h_flex().id(id).h(26).px(10).items_center().rounded(6).border_1().border_color(t.input).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => onClick(cx)).child(label);

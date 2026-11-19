@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { draftBase, paneBase } from "../../src/core/draft/paths";
 import type { Doc } from "../../src/core/document/document";
 import { createRegistry } from "../../src/core/extensions/registry";
-import { MOD_EDITOR } from "../../src/core/names";
+import { MOD_EDITOR, MOD_OPEN, SHARED_KEY } from "../../src/core/names";
 import type { FileStore, FolderWatch } from "../../src/ports/file-store";
 import { SlotStore, type SlotIO } from "../../src/ports/slot-store";
 import { deferred, FakeEditorState, host, install, makeCx, reset, settle, type Deferred, type FakeCx } from "./host";
@@ -130,11 +130,76 @@ beforeEach(() => {
 });
 
 describe("init", () => {
-  test("without a key it only renders a message (herdr-app check)", () => {
+  test("herdr-app check renders only: no key, no store", async () => {
+    host.checking = true;
+    host.props = { file: "/p/a.txt" };
+    files.disk.set("/p/a.txt", "a");
     const v = makeView();
     v.init(undefined, cx);
-    expect(v.screen).toEqual({ kind: "message", text: "Open a file from the Files panel." });
+    await settle();
+    expect(v.screen.kind).not.toBe("ready");
+    expect(io.files.size).toBe(0);
     expect(() => v.render(cx)).not.toThrow();
+  });
+
+  test("opens props.file without props.key", async () => {
+    files.disk.set("/p/a.txt", "hello\n");
+    host.props = { file: "/p/a.txt" };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    expect(v.screen.kind).toBe("ready");
+    expect(v.doc?.text).toBe("hello\n");
+  });
+
+  test("without a key, drafts are written under a generated key", async () => {
+    files.disk.set("/p/a.txt", "hello\n");
+    host.props = { file: "/p/a.txt" };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    code().type("edited\n", cx);
+    await settle();
+    const owners = draftKeys().map((k) => k.split("/")[2]!.split(".")[0]);
+    expect(owners.length).toBeGreaterThan(0);
+    expect(owners.every((o) => /^m[0-9a-z]+$/.test(o!))).toBe(true);
+  });
+
+  test("an empty editor shows Open file… and the bound key", async () => {
+    host.keys = [{ section: "global", keys: "cmd-o", action: `mod.open:${MOD_OPEN}` }];
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    host.texts = [];
+    host.clicks.clear();
+    v.render(cx);
+    expect(host.texts).toContain("Open file…");
+    expect(host.texts).toContain("cmd-o");
+    host.clicks.get("open-file")!({}, cx);
+    expect(host.run).toContainEqual({ command: "mod.open", args: { name: MOD_OPEN } });
+  });
+
+  test("an empty editor without a bound key shows only the button", async () => {
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    host.texts = [];
+    v.render(cx);
+    expect(host.texts).toContain("Open file…");
+    expect(host.texts.some((x) => x.includes("cmd-"))).toBe(false);
+  });
+
+  test("Open file… registers the empty pane so the opened file comes back to it", async () => {
+    host.panes = [{ pane: "e1", tab: "t1", mod: MOD_EDITOR }];
+    host.focused = { pane: "e1" };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    host.clicks.clear();
+    v.render(cx);
+    host.clicks.get("open-file")!({}, cx);
+    const reg = (host.shared.get(SHARED_KEY) as { registry: Record<string, { pane: string }> }).registry;
+    expect(Object.values(reg)).toEqual([expect.objectContaining({ pane: "e1", tab: "t1" })]);
   });
 
   test("opens the file from props and remembers it for the pane", async () => {

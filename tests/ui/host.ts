@@ -66,6 +66,7 @@ const element = (): unknown => {
       (...args: unknown[]) => {
         if (key === "id") id = String(args[0]);
         else if (key === "on_click" && id !== null) host.clicks.set(id, args[0] as Click);
+        else if (key === "child" && typeof args[0] === "string") host.texts.push(args[0]);
         return self;
       },
     apply: () => element(),
@@ -115,6 +116,10 @@ export const host = {
   clicks: new Map<string, Click>(),
   appHome: "/fake-home",
   platform: "macos",
+  /** Every string passed to .child(): what a render shows. Clear it before the render you check. */
+  texts: [] as string[],
+  keys: [] as { section: string; keys: string; action: string }[],
+  checking: false,
 };
 
 export function reset() {
@@ -132,6 +137,9 @@ export function reset() {
   host.clicks.clear();
   host.appHome = "/fake-home";
   host.platform = "macos";
+  host.texts = [];
+  host.keys = [];
+  host.checking = false;
   FakeEditorState.created = [];
 }
 
@@ -182,6 +190,8 @@ export function install() {
     exec: (cmd: string, args: string[]) => host.exec(cmd, args),
     watchFolder: fakeWatch,
     appHome: () => host.appHome,
+    keys: () => host.keys,
+    checking: () => host.checking,
     // Used by src/adapters; not exercised by the tests yet.
     readTextFile: async () => null,
     writeTextFile: async () => {},

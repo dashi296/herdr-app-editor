@@ -5,6 +5,7 @@
 export const NS = "herdr-app-editor";
 export const MOD_EDITOR = "herdr-app-editor";
 export const MOD_FILES = "herdr-app-editor-files";
+export const MOD_OPEN = "herdr-app-editor-open";
 export const MOD_UNINSTALL = "herdr-app-editor-uninstall";
 export const LAYOUT_NAME = "herdr-app-editor";
 export const SHARED_KEY = NS;
