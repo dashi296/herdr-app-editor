@@ -12,20 +12,7 @@
 // src/entries/editor-files.js
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import {
-  spaces,
-  panes,
-  focused,
-  exec,
-  readTextFile,
-  watchFolder,
-  theme,
-  settings,
-  window,
-  run,
-  shared,
-  setShared
-} from "herdr";
+import { exec, readTextFile, watchFolder, theme, settings, window } from "herdr";
 
 // src/core/names.ts
 var NS = "herdr-app-editor";
@@ -33,14 +20,31 @@ var MOD_EDITOR = "herdr-app-editor";
 var MOD_FILES = "herdr-app-editor-files";
 var SHARED_KEY = NS;
 
+// src/ui/location.ts
+import { focused, panes, spaces } from "herdr";
+function currentLocation() {
+  const space = spaces().find((s) => s.active), f = focused();
+  let pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+  if (pane && pane.mod === MOD_EDITOR)
+    pane = panes().find((p) => p.tab === pane.tab && p.cwd) ?? pane;
+  const on = f?.pane === null ? f.terminal?.includes("/") ? f.terminal.split("/")[0] : null : space?.machine ?? null;
+  return { cwd: pane?.cwd || f?.cwd || space?.folder, on, space: space?.id };
+}
+function activeTab() {
+  return spaces().find((s) => s.active)?.tabs.find((t) => t.active)?.id ?? null;
+}
+
+// src/ui/opener.ts
+import { focused as focused2, panes as panes2, run, setShared, shared } from "herdr";
+
 // src/core/routing/routing.ts
-var liveEditors = (panes, mod) => new Map(panes.filter((p) => p.mod === mod).map((p) => [p.pane, p.tab]));
-function pruneRegistry(reg, panes, mod) {
-  const live = liveEditors(panes, mod);
+var liveEditors = (panes2, mod) => new Map(panes2.filter((p) => p.mod === mod).map((p) => [p.pane, p.tab]));
+function pruneRegistry(reg, panes2, mod) {
+  const live = liveEditors(panes2, mod);
   return Object.fromEntries(Object.entries(reg).filter(([, e]) => live.has(e.pane)));
 }
-function pickTarget(reg, panes, mod, tab) {
-  const live = liveEditors(panes, mod);
+function pickTarget(reg, panes2, mod, tab) {
+  const live = liveEditors(panes2, mod);
   let best = null;
   for (const [key, e] of Object.entries(reg)) {
     if (live.get(e.pane) !== tab)
@@ -59,16 +63,69 @@ function encodeCommand(verb, payload) {
   return `${verb}:${JSON.stringify(payload)}`;
 }
 
-// src/entries/editor-files.js
-function location() {
-  const space = spaces().find((s) => s.active), f = focused();
-  let pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
-  if (pane && pane.mod === MOD_EDITOR)
-    pane = panes().find((p) => p.tab === pane.tab && p.cwd) ?? pane;
-  const on = f?.pane === null ? f.terminal?.includes("/") ? f.terminal.split("/")[0] : null : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on, space: space?.id };
+// src/ui/opener.ts
+var readShared = () => shared(SHARED_KEY) ?? {};
+var id = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+class EditorOpener {
+  splitting = false;
+  queued = [];
+  open(request, cx) {
+    if (this.splitting) {
+      this.queued.push(request);
+      return;
+    }
+    const { file, on, tab, newPane } = request;
+    const all = panes2();
+    const registry = pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR);
+    const target = newPane ? null : pickTarget(registry, all, MOD_EDITOR, tab);
+    if (target) {
+      run("pane.focus", { pane: target.pane });
+      run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+      return;
+    }
+    const inTab = all.filter((p) => p.tab === tab);
+    const f = focused2();
+    const base = inTab.find((p) => p.pane === f?.pane) ?? inTab[0];
+    if (!base)
+      return;
+    const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
+    const key = id("e");
+    this.splitting = true;
+    try {
+      run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key, file, on } });
+    } catch (e) {
+      this.splitting = false;
+      this.drain(cx);
+      throw e;
+    }
+    cx.spawn(async (cx2) => {
+      try {
+        for (let i = 0;i < 30; i++) {
+          await cx2.sleep(100);
+          const pane = newPaneAfterSplit(before, panes2(), MOD_EDITOR, tab);
+          if (!pane)
+            continue;
+          const now = readShared();
+          const reg = pruneRegistry(now.registry ?? {}, panes2(), MOD_EDITOR);
+          reg[key] = { pane, tab, lastFocus: Date.now() };
+          setShared(SHARED_KEY, { ...now, registry: reg });
+          return;
+        }
+      } finally {
+        this.splitting = false;
+        this.drain(cx2);
+      }
+    });
+  }
+  drain(cx) {
+    while (this.queued.length && !this.splitting)
+      this.open(this.queued.shift(), cx);
+  }
 }
-var key = () => JSON.stringify(location());
+
+// src/entries/editor-files.js
+var key = () => JSON.stringify(currentLocation());
 var LANG = {
   ts: "js",
   tsx: "js",
@@ -165,7 +222,7 @@ class Files extends View {
       this.limited = true;
   }
   refresh(cx) {
-    const { cwd, on } = location(), next = key();
+    const { cwd, on } = currentLocation(), next = key();
     if (next !== this.context?.key) {
       if (this.context)
         this.saved.set(this.context.key, { folders: this.folders, file: this.file });
@@ -261,65 +318,10 @@ class Files extends View {
     cx.notify();
   }
   openInEditor(path, cx, newPane = false) {
-    const space = spaces().find((s) => s.active);
-    const tab = space?.tabs.find((t) => t.active)?.id;
+    const tab = activeTab();
     if (!tab)
       return;
-    this.openFileInEditor({ file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane }, cx);
-  }
-  openFileInEditor(request, cx) {
-    if (this.splitting) {
-      (this.queuedOpens ??= []).push(request);
-      return;
-    }
-    const { file, on, tab, newPane } = request;
-    const all = panes();
-    const state = shared(SHARED_KEY) ?? {};
-    const registry = pruneRegistry(state.registry ?? {}, all, MOD_EDITOR);
-    const target = newPane ? null : pickTarget(registry, all, MOD_EDITOR, tab);
-    const req = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    if (target) {
-      run("pane.focus", { pane: target.pane });
-      run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req, file, on, sentAt: Date.now() })}`);
-      return;
-    }
-    const inTab = all.filter((p) => p.tab === tab);
-    const f = focused();
-    const base = inTab.find((p) => p.pane === f?.pane) ?? inTab[0];
-    if (!base)
-      return;
-    const before = all.filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
-    const key2 = `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    this.splitting = true;
-    try {
-      run("pane.split", { pane: base.pane, direction: "right", mod: MOD_EDITOR, props: { key: key2, file, on } });
-    } catch (e) {
-      this.splitting = false;
-      this.drainQueuedOpens(cx);
-      throw e;
-    }
-    cx.spawn(async (cx2) => {
-      try {
-        for (let i = 0;i < 30; i++) {
-          await cx2.sleep(100);
-          const pane = newPaneAfterSplit(before, panes(), MOD_EDITOR, tab);
-          if (!pane)
-            continue;
-          const now = shared(SHARED_KEY) ?? {};
-          const reg = pruneRegistry(now.registry ?? {}, panes(), MOD_EDITOR);
-          reg[key2] = { pane, tab, lastFocus: Date.now() };
-          setShared(SHARED_KEY, { ...now, registry: reg });
-          return;
-        }
-      } finally {
-        this.splitting = false;
-        this.drainQueuedOpens(cx2);
-      }
-    });
-  }
-  drainQueuedOpens(cx) {
-    while (this.queuedOpens?.length && !this.splitting)
-      this.openFileInEditor(this.queuedOpens.shift(), cx);
+    (this.opener ??= new EditorOpener).open({ file: `${this.root}/${path}`, on: this.on ?? null, tab, newPane }, cx);
   }
   show(path, cx) {
     this.code?.release();

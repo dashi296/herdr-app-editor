@@ -11,7 +11,7 @@ const { default: Files } = await import("../../src/entries/editor-files.js");
 
 interface FilesView {
   root: string | undefined;
-  splitting?: boolean;
+  opener?: { splitting: boolean };
   init(props: unknown, cx: FakeCx): void;
   refresh(cx: FakeCx): void;
   openInEditor(path: string, cx: FakeCx, newPane?: boolean): void;
@@ -105,7 +105,7 @@ describe("opening files in the editor", () => {
     await settle();
     expect(registry()[split.props.key]).toMatchObject({ pane: "e1", tab: "t1" });
     expect(registry().k9).toBeDefined();
-    expect(v.splitting).toBe(false);
+    expect(v.opener?.splitting).toBe(false);
   });
 
   test("clicks during a split wait for it, then go to the new editor in order", async () => {
@@ -137,7 +137,7 @@ describe("opening files in the editor", () => {
     };
     const v = start();
     expect(() => v.openInEditor("a.ts", cx)).toThrow("no room");
-    expect(v.splitting).toBe(false);
+    expect(v.opener?.splitting).toBe(false);
     expect(() => v.openInEditor("b.ts", cx)).toThrow("no room");
     expect(commands().filter((c) => c === "pane.split")).toHaveLength(2);
   });
