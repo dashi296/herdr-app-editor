@@ -1,6 +1,6 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews.
 //
-// Modified from herdrdev/herdr-app defaults/mods/files/main.js (5216e6f), Apache-2.0
+// Modified from herdrdev/herdr-app defaults/mods/files/main.js (317e673), Apache-2.0
 // (LICENSE next to the built main.js; vendor/herdr-files/LICENSE in the repository).
 // Changes by herdr-app-editor, marked "herdr-app-editor:" in the source:
 //   - clicking a file opens it in the editor mod when that mod is installed; otherwise the read-only
@@ -285,7 +285,7 @@ export default class Files extends View {
           readonly: true,
           value: text.length > 400000 ? text.slice(0, 400000) + "\n… (file truncated)" : text,
           font_family: settings().font_family,
-          font_size: 12,
+          font_size: settings().font_size,
           syntax: {
             keyword: t.ansi5,
             string: t.ansi2,

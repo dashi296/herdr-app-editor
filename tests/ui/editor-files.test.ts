@@ -87,6 +87,15 @@ describe("opening files", () => {
     expect(FakeEditorState.created.at(-1)).toMatchObject({ opts: { readonly: true, value: "preview me" } });
   });
 
+  test("the preview uses the terminal font and its size from the settings", async () => {
+    host.settings = { dark: true, font_family: "Geist Mono", font_size: 15 };
+    host.files.set("/work/app/a.ts", "preview me");
+    const v = start();
+    v.openInEditor("a.ts", cx);
+    await settle();
+    expect(FakeEditorState.created.at(-1)).toMatchObject({ opts: { font_family: "Geist Mono", font_size: 15 } });
+  });
+
   test("without the editor mod, a click made before the folder changed previews nothing from the new folder", async () => {
     host.files.set("/work/app/a.ts", "old");
     host.files.set("/work/other/a.ts", "new");
