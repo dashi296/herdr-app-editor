@@ -90,6 +90,8 @@ test("cut tells whether the output ended mid-line", () => {
   expect(S.cut("a\x001\x001\x00foo\n")).toBe(false);
   expect(S.cut("")).toBe(false);
   expect(S.cut("a\x001\x001\x00fo")).toBe(true);
+  // Cut exactly at a line end: only the size tells.
+  expect(S.cut("x".repeat(S.OUTPUT_CAP - 1) + "\n")).toBe(true);
 });
 test("hits are capped at HIT_LIMIT", () => {
   const out = Array.from({ length: S.HIT_LIMIT + 5 }, (_, i) => `f.ts\x00${i + 1}\x001\x00foo\n`).join("");

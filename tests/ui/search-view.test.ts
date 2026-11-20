@@ -137,6 +137,26 @@ describe("searching", () => {
     v.onKey({ key: "enter", modifiers: {} }, cx);
     expect(host.run).toEqual([]);
     expect(shown(v)).not.toContain("src/a.ts:3");
+    await settle(); // let the pending search end inside this test
+  });
+
+  test("text typed during a search still waits its 250 ms when that search ends sooner", async () => {
+    const first = deferred<ExecResult>();
+    let n = 0;
+    answer = (_cmd, args) =>
+      n++ === 0 ? first.promise : { code: 0, stdout: `x.ts\x001\x001\x00${args.at(-1)}\n`, stderr: "" };
+    await start();
+    await type("fo"); // the search for "fo" is now running
+    const wait = deferred<void>();
+    cx.sleep = () => wait.promise; // the delay after the next keystroke has not passed yet
+    input().type("foo", cx);
+    await settle();
+    first.resolve({ code: 0, stdout: "", stderr: "" });
+    await settle();
+    expect(searches().map((c) => c.args.at(-1))).toEqual(["fo"]);
+    wait.resolve();
+    await settle();
+    expect(searches().map((c) => c.args.at(-1))).toEqual(["fo", "foo"]);
   });
 
   test("exit 1 with no output shows No matches.", async () => {

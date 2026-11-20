@@ -50,6 +50,8 @@ export class SearchView extends View {
   private git: Promise<boolean> | null = null;
   /** The query the person last typed. */
   private wanted = "";
+  /** The text whose delay passed while another search was running: that search runs it when it ends. */
+  private due: string | null = null;
   private running = false;
 
   override init(_props: unknown, cx: AsyncContext): void {
@@ -94,14 +96,17 @@ export class SearchView extends View {
     this.at = 0;
     cx.spawn(async (cx: AsyncContext) => {
       await cx.sleep(DEBOUNCE_MS);
-      if (this.wanted === q) await this.search(cx);
+      if (this.wanted !== q) return;
+      if (this.running) this.due = q;
+      else await this.search(cx);
     });
   }
 
-  /** Runs the newest query unless a search is running; that one runs it when it ends. */
+  /** Runs the newest text. Only one search runs at a time (exec cannot be cancelled). */
   private async search(cx: AsyncContext) {
     if (this.running || !this.loc?.cwd || !this.git) return;
     this.running = true;
+    this.due = null;
     const q = this.wanted;
     this.state = { kind: "searching" };
     cx.notify();
@@ -127,7 +132,7 @@ export class SearchView extends View {
       this.state = next;
       this.at = 0;
       cx.notify();
-    } else if (this.wanted.length >= MIN_QUERY) await this.search(cx);
+    } else if (this.due === this.wanted) await this.search(cx); // else its own delay is still running
   }
 
   private hits(): Hit[] {

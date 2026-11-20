@@ -59,8 +59,12 @@ function completeLines(stdout: string): string[] {
   return end < 0 ? [] : stdout.slice(0, end).split("\n");
 }
 
-/** The output ended mid-line: it was cut (exec keeps 8 MiB and still reports exit 0). */
-export const cut = (stdout: string): boolean => stdout !== "" && !stdout.endsWith("\n");
+/** Herdr's exec keeps this much output and still reports exit 0. */
+export const OUTPUT_CAP = 8 * 1024 * 1024;
+
+/** The output was cut: it ends mid-line, or it is as long as the cap (a cut exactly at a line end). */
+export const cut = (stdout: string): boolean =>
+  stdout.length >= OUTPUT_CAP || (stdout !== "" && !stdout.endsWith("\n"));
 
 const show = (line: string) => line.trim().slice(0, LINE_SHOW);
 const stripCr = (s: string) => (s.endsWith("\r") ? s.slice(0, -1) : s);

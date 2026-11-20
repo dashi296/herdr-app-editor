@@ -40,7 +40,8 @@ function completeLines(stdout) {
   return end < 0 ? [] : stdout.slice(0, end).split(`
 `);
 }
-var cut = (stdout) => stdout !== "" && !stdout.endsWith(`
+var OUTPUT_CAP = 8 * 1024 * 1024;
+var cut = (stdout) => stdout.length >= OUTPUT_CAP || stdout !== "" && !stdout.endsWith(`
 `);
 var show = (line) => line.trim().slice(0, LINE_SHOW);
 var stripCr = (s) => s.endsWith("\r") ? s.slice(0, -1) : s;
@@ -197,6 +198,7 @@ class SearchView extends View {
   notice = null;
   git = null;
   wanted = "";
+  due = null;
   running = false;
   init(_props, cx) {
     this.handle = cx.focus_handle();
@@ -237,7 +239,11 @@ class SearchView extends View {
     this.at = 0;
     cx.spawn(async (cx2) => {
       await cx2.sleep(DEBOUNCE_MS);
-      if (this.wanted === q)
+      if (this.wanted !== q)
+        return;
+      if (this.running)
+        this.due = q;
+      else
         await this.search(cx2);
     });
   }
@@ -245,6 +251,7 @@ class SearchView extends View {
     if (this.running || !this.loc?.cwd || !this.git)
       return;
     this.running = true;
+    this.due = null;
     const q = this.wanted;
     this.state = { kind: "searching" };
     cx.notify();
@@ -272,7 +279,7 @@ class SearchView extends View {
       this.state = next;
       this.at = 0;
       cx.notify();
-    } else if (this.wanted.length >= MIN_QUERY)
+    } else if (this.due === this.wanted)
       await this.search(cx);
   }
   hits() {
