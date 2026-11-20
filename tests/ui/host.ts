@@ -163,6 +163,8 @@ export const host = {
   clicks: new Map<string, Click>(),
   appHome: "/fake-home",
   platform: "macos",
+  /** What `settings()` returns. */
+  settings: { dark: true } as Record<string, unknown>,
   /** Every string passed to .child(): what a render shows. Clear it before the render you check. */
   texts: [] as string[],
   keys: [] as { section: string; keys: string; action: string }[],
@@ -187,6 +189,7 @@ export function reset() {
   host.clicks.clear();
   host.appHome = "/fake-home";
   host.platform = "macos";
+  host.settings = { dark: true };
   host.texts = [];
   host.keys = [];
   host.checking = false;
@@ -239,7 +242,7 @@ export function install() {
     focused: () => host.focused,
     panes: () => host.panes,
     spaces: () => host.spaces,
-    settings: () => ({ dark: true }),
+    settings: () => host.settings,
     theme: () => ({}),
     window: () => ({ active: true, platform: host.platform }),
     exec: (cmd: string, args: string[], opts?: ExecOptions) => host.exec(cmd, args, opts),
