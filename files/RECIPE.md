@@ -25,12 +25,15 @@ Herdr's Files panel, changed so that clicking a file opens it in [Herdr Editor](
 
 ## Watch out
 
-- **Putting it in the layout.** Change the Files block's content in the person's layout from `{ "mod": "files" }` to `{ "mod": "herdr-app-editor-files" }`. Herdr's own layouts are read-only: if the person uses `main` (or another shipped layout), clone it first (`herdr-app do layout.clone '{"name":"main","as":"<name>"}'`, which also switches to the clone) and change the clone. If the layout has no Files block, ask the person where the panel should go. To undo, set the block back to `{ "mod": "files" }`.
+- **Tell the person before installing.** No Internet access; in a space on another machine it runs its commands and reads files on that machine. It runs `sh` (PowerShell on Windows) to list the shown folder and `git` to read the repository's status for the git marks, watches the shown folder for changes, and reads files in it. It reads `mods/herdr-app-editor/mod.json` in the app home. With Herdr Editor installed, it opens editor panes and keeps a registry in the shared state `herdr-app-editor`.
+- **Putting it in the layout.** Find the block whose `content` is `{ "mod": "files" }` in the person's layout (the shown layout is `layout` in `herdr-app status`; in `main` it is the child with `"id": "files"` in the `panel-body` stack) and change only that `content` to `{ "mod": "herdr-app-editor-files" }`; leave the stack's `"active": "files"` and the block's `id` as they are. If the layout has no such block, ask the person where the panel should go. To undo, set the block back to `{ "mod": "files" }`.
+- **Herdr's own layouts are read-only.** If the person uses `main` (or another shipped layout), ask for a name for their copy (suggest `<layout>-editor`, for example `main-editor`), then clone the layout they use (`herdr-app do layout.clone '{"name":"<layout>","as":"<name>"}'`) and change the clone. Tell the person first: the clone becomes their active layout, and it does not get later changes Herdr makes to the layout it came from. `layout.clone` rewrites the JSON with its keys in another order, so compare the parsed JSON, not the text.
+- **The panel can be hidden.** In `main` the right-hand panel that holds Files and Changes starts hidden; the Files button at the right of the tab bar shows it.
 - The panel opens files in Herdr Editor's pane. Install [Herdr Editor](../editor/RECIPE.md) from the same repository for that; without it, a click shows the read-only preview in the panel.
 - The names `herdr-app-editor-files` and `herdr-app-editor` are compiled into the code: the command target, the shared key and the icon paths. If a name is taken, do not rename the copied folder; change `src/core/names.ts` in the repository and rebuild (`bun run build`).
 - Keep `LICENSE` and `LICENSE-Lucide.txt` in the folder and the modification notice at the top of `main.js` (Apache-2.0 §4).
 - **Removing it:** set the Files block back to `{ "mod": "files" }` first, then delete `mods/herdr-app-editor-files`.
-- Requires Herdr Desktop 0.1.16 or later. Tested on macOS only.
+- Requires Herdr Desktop 0.1.16 or later; check `herdr-app --version` first. Tested on macOS only.
 
 ## Done when
 
