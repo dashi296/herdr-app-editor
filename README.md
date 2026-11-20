@@ -6,7 +6,7 @@ Two pieces you add to the layout you already use, each listed on [herdr.dev/mods
 | Folder | What it is |
 |---|---|
 | [`editor/`](editor/RECIPE.md) | **Herdr Editor**: an editable editor pane, and quick open (cmd-o) to find a file by name and open it there. |
-| [`files/`](files/RECIPE.md) | **Herdr Editor Files**: Herdr's Files panel, changed so that clicking a file opens it in Herdr Editor. Without Herdr Editor it shows the usual read-only preview. |
+| [`files/`](files/RECIPE.md) | **Herdr Editor Files**: Herdr's Files panel, changed so that clicking a file opens it in Herdr Editor. Without Herdr Editor it shows a read-only preview in the panel. |
 
 ![Herdr Editor](editor/preview.png)
 

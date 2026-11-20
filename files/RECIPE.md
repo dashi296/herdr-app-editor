@@ -26,7 +26,7 @@ Herdr's Files panel, changed so that clicking a file opens it in [Herdr Editor](
 ## Watch out
 
 - **Putting it in the layout.** Change the Files block's content in the person's layout from `{ "mod": "files" }` to `{ "mod": "herdr-app-editor-files" }`. Herdr's own layouts are read-only: if the person uses `main` (or another shipped layout), clone it first (`herdr-app do layout.clone '{"name":"main","as":"<name>"}'`, which also switches to the clone) and change the clone. If the layout has no Files block, ask the person where the panel should go. To undo, set the block back to `{ "mod": "files" }`.
-- The panel opens files in Herdr Editor's pane. Install [Herdr Editor](../editor/RECIPE.md) from the same repository for that; without it, the panel works like Herdr's Files.
+- The panel opens files in Herdr Editor's pane. Install [Herdr Editor](../editor/RECIPE.md) from the same repository for that; without it, a click shows the read-only preview in the panel.
 - The names `herdr-app-editor-files` and `herdr-app-editor` are compiled into the code: the command target, the shared key and the icon paths. If a name is taken, do not rename the copied folder; change `src/core/names.ts` in the repository and rebuild (`bun run build`).
 - Keep `LICENSE` and `LICENSE-Lucide.txt` in the folder and the modification notice at the top of `main.js` (Apache-2.0 §4).
 - **Removing it:** set the Files block back to `{ "mod": "files" }` first, then delete `mods/herdr-app-editor-files`.
