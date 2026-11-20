@@ -88,6 +88,9 @@ export class SearchView extends View {
       this.at = 0;
       return;
     }
+    // Hits of the previous text must not be picked while this one waits (spec §4).
+    this.state = { kind: "searching" };
+    this.at = 0;
     cx.spawn(async (cx: AsyncContext) => {
       await cx.sleep(DEBOUNCE_MS);
       if (this.wanted === q) await this.search(cx);

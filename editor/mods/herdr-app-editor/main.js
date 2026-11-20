@@ -1100,8 +1100,13 @@ class EditorView extends View {
     try {
       await this.load(path, on, cx, seq);
     } finally {
-      if (seq === this.openSeq)
+      if (seq === this.openSeq) {
         this.loading = null;
+        const place = this.pendingAt;
+        this.pendingAt = null;
+        if (place && this.screen.kind === "ready")
+          this.jumpTo(place);
+      }
     }
   }
   async load(path, on, cx, seq) {
@@ -1169,13 +1174,9 @@ class EditorView extends View {
     this.draftOffer = found.draft;
     this.draftError = found.error;
     this.screen = { kind: "ready" };
-    const place = this.pendingAt;
-    this.pendingAt = null;
-    if (place)
-      this.jumpTo(place);
   }
   jumpTo(at) {
-    if (this.screen.kind !== "ready" || !this.code) {
+    if (this.loading || this.screen.kind !== "ready" || !this.code) {
       this.pendingAt = at;
       return;
     }

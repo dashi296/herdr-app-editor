@@ -33,7 +33,7 @@ export const ignoreCase = (q: string): boolean => q === q.toLowerCase();
 const caseFlag = (q: string) => (ignoreCase(q) ? ["-i"] : []);
 
 export function gitGrepArgs(q: string): string[] {
-  return ["grep", "-n", "-I", "--column", "--no-color", "--untracked", "-F", ...caseFlag(q), "-e", q];
+  return ["grep", "-n", "-I", "--column", "--no-color", "--untracked", "-z", "-F", ...caseFlag(q), "-e", q];
 }
 
 export function grepArgs(q: string): string[] {
@@ -77,10 +77,11 @@ function collect(stdout: string, read: (line: string) => Hit | null): Hits {
   return { hits, truncated };
 }
 
-/** `git grep -n --column` output: `path:line:bytecol:text`. */
+/** `git grep -n --column -z` output: `path\0line\0bytecol\0text`. With -z the path is not quoted
+ *  (git quotes non-ASCII paths and `"` otherwise: core.quotePath). */
 export function parseGitGrep(stdout: string, q: string): Hits {
   return collect(stdout, (raw) => {
-    const m = /^(.*?):(\d+):(\d+):(.*)$/s.exec(raw);
+    const m = /^([^\0]*)\0(\d+)\0(\d+)\0(.*)$/s.exec(raw);
     if (!m) return null;
     const text = stripCr(m[4]!);
     return {

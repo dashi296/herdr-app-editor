@@ -28,7 +28,14 @@ class MemoryIO implements SlotIO {
     }
     this.files.set(rel, text);
   }
+  /** Holds the next unlink open until released. */
+  unlinkGate: Deferred<void> | null = null;
   async unlink(rel: string) {
+    const gate = this.unlinkGate;
+    if (gate) {
+      this.unlinkGate = null;
+      await gate.promise;
+    }
     this.files.delete(rel);
   }
   async list(dir: string) {
@@ -758,6 +765,24 @@ describe("at: opening at a line", () => {
     await first;
     await settle();
     expect(v.doc?.path).toBe("/p/a.txt");
+    expect(code().selected).toEqual({ start: 10, end: 10 });
+  });
+
+  test("an at for the file being opened while the dirty one is still being left waits for that file", async () => {
+    const v = await opened("/p/a.txt", "a\n");
+    code().type("a edited\n", cx);
+    await settle(); // the draft of a.txt is on disk
+    files.disk.set("/p/b.txt", T);
+    await v.onCommand(openAt("r1", "/p/b.txt", { line: 1 }), cx);
+    const gate = deferred<void>();
+    io.unlinkGate = gate; // "Don't save" removes the draft: hold that open
+    const leaving = v.onCommand(`reply:${JSON.stringify({ to: "k1", req: "r1", choice: "discard" })}`, cx);
+    await settle();
+    await v.onCommand(openAt("r2", "/p/b.txt", { line: 3 }), cx);
+    gate.resolve();
+    await leaving;
+    await settle();
+    expect(v.doc?.path).toBe("/p/b.txt");
     expect(code().selected).toEqual({ start: 10, end: 10 });
   });
 

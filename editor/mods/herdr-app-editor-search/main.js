@@ -18,7 +18,7 @@ var LINE_SHOW = 200;
 var ignoreCase = (q) => q === q.toLowerCase();
 var caseFlag = (q) => ignoreCase(q) ? ["-i"] : [];
 function gitGrepArgs(q) {
-  return ["grep", "-n", "-I", "--column", "--no-color", "--untracked", "-F", ...caseFlag(q), "-e", q];
+  return ["grep", "-n", "-I", "--column", "--no-color", "--untracked", "-z", "-F", ...caseFlag(q), "-e", q];
 }
 function grepArgs(q) {
   return ["-rnI", "-F", ...caseFlag(q), "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", q, "."];
@@ -59,7 +59,7 @@ function collect(stdout, read) {
 }
 function parseGitGrep(stdout, q) {
   return collect(stdout, (raw) => {
-    const m = /^(.*?):(\d+):(\d+):(.*)$/s.exec(raw);
+    const m = /^([^\0]*)\0(\d+)\0(\d+)\0(.*)$/s.exec(raw);
     if (!m)
       return null;
     const text = stripCr(m[4]);
@@ -231,6 +231,8 @@ class SearchView extends View {
       this.at = 0;
       return;
     }
+    this.state = { kind: "searching" };
+    this.at = 0;
     cx.spawn(async (cx2) => {
       await cx2.sleep(DEBOUNCE_MS);
       if (this.wanted === q)

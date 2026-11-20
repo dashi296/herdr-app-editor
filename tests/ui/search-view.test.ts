@@ -61,7 +61,7 @@ beforeEach(() => {
   cx = makeCx();
   calls = [];
   inGit = true;
-  answer = () => ({ code: 0, stdout: "src/a.ts:3:5:  let foo = 1\n", stderr: "" });
+  answer = () => ({ code: 0, stdout: "src/a.ts\x003\x005\x00  let foo = 1\n", stderr: "" });
   host.exec = async (cmd, args, opts) => {
     calls.push({ cmd, args, opts });
     if (cmd === "git" && args[0] === "rev-parse") return { code: inGit ? 0 : 128, stdout: "true\n", stderr: "" };
@@ -106,18 +106,30 @@ describe("searching", () => {
     const first = deferred<ExecResult>();
     let n = 0;
     answer = (_cmd, args) =>
-      n++ === 0 ? first.promise : { code: 0, stdout: `food.ts:1:1:${args.at(-1)}\n`, stderr: "" };
+      n++ === 0 ? first.promise : { code: 0, stdout: `food.ts\x001\x001\x00${args.at(-1)}\n`, stderr: "" };
     const v = await start();
     await type("fo");
     input().type("foo", cx);
     input().type("food", cx);
     await settle();
-    first.resolve({ code: 0, stdout: "old.ts:1:1:fo\n", stderr: "" });
+    first.resolve({ code: 0, stdout: "old.ts\x001\x001\x00fo\n", stderr: "" });
     await settle();
     expect(searches().map((c) => c.args.at(-1))).toEqual(["fo", "food"]);
     const texts = shown(v);
     expect(texts).not.toContain("old.ts:1");
     expect(texts).toContain("food.ts:1");
+  });
+
+  test("results of the previous text are hidden as soon as the text changes, so Enter cannot open them", async () => {
+    host.panes = [...host.panes, { pane: "e1", tab: "t1", mod: MOD_EDITOR }];
+    host.shared.set(SHARED_KEY, { registry: { k1: { pane: "e1", tab: "t1", lastFocus: 1 } } });
+    const v = await start();
+    await type("foo");
+    expect(shown(v)).toContain("src/a.ts:3");
+    input().type("foo_bar", cx); // Enter before the debounce runs the new search
+    v.onKey({ key: "enter", modifiers: {} }, cx);
+    expect(host.run).toEqual([]);
+    expect(shown(v)).not.toContain("src/a.ts:3");
   });
 
   test("exit 1 with no output shows No matches.", async () => {
@@ -128,7 +140,7 @@ describe("searching", () => {
   });
 
   test("an error exit with output shows the hits and the stopped-early notice", async () => {
-    answer = () => ({ code: 2, stdout: "a.ts:1:1:foo\nb.ts:2:1:fo", stderr: "Permission denied" });
+    answer = () => ({ code: 2, stdout: "a.ts\x001\x001\x00foo\nb.ts\x002\x001\x00fo", stderr: "Permission denied" });
     const v = await start();
     await type("foo");
     const texts = shown(v);
@@ -154,7 +166,7 @@ describe("searching", () => {
   test("more than 500 hits says so", async () => {
     answer = () => ({
       code: 0,
-      stdout: Array.from({ length: 501 }, (_, i) => `f.ts:${i + 1}:1:foo\n`).join(""),
+      stdout: Array.from({ length: 501 }, (_, i) => `f.ts\x00${i + 1}\x001\x00foo\n`).join(""),
       stderr: "",
     });
     const v = await start();

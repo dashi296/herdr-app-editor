@@ -15,6 +15,7 @@ test("git grep args", () => {
     "--column",
     "--no-color",
     "--untracked",
+    "-z",
     "-F",
     "-i",
     "-e",
@@ -27,6 +28,7 @@ test("git grep args", () => {
     "--column",
     "--no-color",
     "--untracked",
+    "-z",
     "-F",
     "-e",
     "Foo",
@@ -50,17 +52,27 @@ test("byte column to UTF-16 column", () => {
   expect(S.byteToUtf16Col("foo", 1)).toBe(1);
 });
 test("parseGitGrep", () => {
-  const out = "src/a.ts:3:21:  const あいう = foo;\nb.txt:1:1:foo\n";
+  const out = "src/a.ts\x003\x0021\x00  const あいう = foo;\nb.txt\x001\x001\x00foo\n";
   expect(S.parseGitGrep(out, "foo").hits).toEqual([
     { path: "src/a.ts", line: 3, col: 15, len: 3, text: "const あいう = foo;" },
     { path: "b.txt", line: 1, col: 1, len: 3, text: "foo" },
   ]);
 });
-test("a path containing a colon still parses (git grep)", () => {
-  expect(S.parseGitGrep("a:b.txt:2:1:foo\n", "foo").hits[0]).toMatchObject({ path: "a:b.txt", line: 2 });
+test("paths come unquoted: colons, non-ASCII and quotes (git grep -z)", () => {
+  expect(S.parseGitGrep("a:1:2:b.txt\x002\x001\x00foo\n", "foo").hits[0]).toMatchObject({
+    path: "a:1:2:b.txt",
+    line: 2,
+  });
+  expect(S.parseGitGrep("日本 語.txt\x001\x003\x00x foo\n", "foo").hits[0]).toMatchObject({
+    path: "日本 語.txt",
+    col: 3,
+  });
+  expect(S.parseGitGrep('a"b.txt\x001\x001\x00foo\n', "foo").hits[0]!.path).toBe('a"b.txt');
 });
 test("a cut-off last line is dropped", () => {
-  expect(S.parseGitGrep("a.ts:1:1:foo\nb.ts:2:1:fo", "foo").hits.map((h) => h.path)).toEqual(["a.ts"]);
+  expect(S.parseGitGrep("a.ts\x001\x001\x00foo\nb.ts\x002\x001\x00fo", "foo").hits.map((h) => h.path)).toEqual([
+    "a.ts",
+  ]);
 });
 test("parseGrep strips ./ and finds the column case-insensitively", () => {
   expect(S.parseGrep("./d/x.md:7:Hello FOO bar\n", "foo").hits).toEqual([
@@ -68,15 +80,15 @@ test("parseGrep strips ./ and finds the column case-insensitively", () => {
   ]);
 });
 test("hits are capped at HIT_LIMIT", () => {
-  const out = Array.from({ length: S.HIT_LIMIT + 5 }, (_, i) => `f.ts:${i + 1}:1:foo\n`).join("");
+  const out = Array.from({ length: S.HIT_LIMIT + 5 }, (_, i) => `f.ts\x00${i + 1}\x001\x00foo\n`).join("");
   const r = S.parseGitGrep(out, "foo");
   expect(r.hits).toHaveLength(S.HIT_LIMIT);
   expect(r.truncated).toBe(true);
 });
 test("long lines are cut for display", () => {
-  const r = S.parseGitGrep(`f.ts:1:1:foo${"x".repeat(500)}\n`, "foo");
+  const r = S.parseGitGrep(`f.ts\x001\x001\x00foo${"x".repeat(500)}\n`, "foo");
   expect(r.hits[0]!.text.length).toBe(S.LINE_SHOW);
 });
 test("CRLF output lines lose the \\r", () => {
-  expect(S.parseGitGrep("f.ts:1:1:foo\r\n", "foo").hits[0]!.text).toBe("foo");
+  expect(S.parseGitGrep("f.ts\x001\x001\x00foo\r\n", "foo").hits[0]!.text).toBe("foo");
 });

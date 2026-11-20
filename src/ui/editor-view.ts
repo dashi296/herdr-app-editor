@@ -261,7 +261,12 @@ export abstract class EditorView extends View {
     try {
       await this.load(path, on, cx, seq);
     } finally {
-      if (seq === this.openSeq) this.loading = null;
+      if (seq === this.openSeq) {
+        this.loading = null;
+        const place = this.pendingAt;
+        this.pendingAt = null;
+        if (place && this.screen.kind === "ready") this.jumpTo(place); // not when the file did not open
+      }
     }
   }
 
@@ -339,15 +344,13 @@ export abstract class EditorView extends View {
     this.draftOffer = found.draft;
     this.draftError = found.error;
     this.screen = { kind: "ready" };
-    const place = this.pendingAt;
-    this.pendingAt = null;
-    if (place) this.jumpTo(place);
   }
 
   /** Selects `at` in the editor; EditorState scrolls the selection into view (spike S12). */
   private jumpTo(at: At) {
-    if (this.screen.kind !== "ready" || !this.code) {
-      this.pendingAt = at; // still loading: openFile applies it when ready
+    if (this.loading || this.screen.kind !== "ready" || !this.code) {
+      // A file is being opened (perhaps still leaving the dirty one): openFile applies it when ready.
+      this.pendingAt = at;
       return;
     }
     const c = this.code as {
