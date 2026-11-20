@@ -3,7 +3,8 @@ import { expect, test } from "bun:test";
 import { parseAt, rangeAt } from "../../src/core/jump/jump";
 
 const T = "one\ntwo\nthree";
-test("line only puts the cursor at the line start", () => expect(rangeAt(T, { line: 2 })).toEqual({ start: 4, end: 4 }));
+test("line only puts the cursor at the line start", () =>
+  expect(rangeAt(T, { line: 2 })).toEqual({ start: 4, end: 4 }));
 test("col and len select within the line", () =>
   expect(rangeAt(T, { line: 3, col: 2, len: 3 })).toEqual({ start: 9, end: 12 }));
 test("a line past the end clamps to the last line", () =>
