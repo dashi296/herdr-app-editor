@@ -30,7 +30,7 @@ Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dashi2
 Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dashi296/herdr-app-editor/tree/main/files
 ```
 
-The agent copies the mod folders into `~/.config/herdr-app/mods/`. For `editor/`, it asks which keys open quick open and text search (cmd-o and cmd-shift-f by default) and adds them to `keys.json`. For `files/`, it points the Files block of your layout at the new panel (cloning the layout first if it is one of Herdr's own). Each RECIPE.md says how to remove it again.
+The agent copies the mod folders into `~/.config/herdr-app/mods/`. For `editor/`, it asks which keys open quick open and text search (cmd-o and cmd-shift-f by default) and adds them to `keys.json`; from then on Herdr updates no longer add new default keys to that file. For `files/`, it points the Files block of your layout at the new panel. If your layout is one of Herdr's own, it asks for a name and makes a copy first, and switches to that copy. Each RECIPE.md says how to remove it again.
 
 Nothing needs building: the built `main.js` files are committed. Requires Herdr Desktop 0.1.16 or later.
 
