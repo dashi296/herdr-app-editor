@@ -97,6 +97,12 @@ test("cut tells whether the output ended mid-line", () => {
   expect(S.cut("あ".repeat(1000) + "\n")).toBe(false);
   // A lone surrogate is written as U+FFFD (3 bytes); a pair is one 4-byte character.
   expect(S.cut("\ud800".repeat(Math.ceil((S.OUTPUT_CAP - 1) / 3)) + "\n")).toBe(true);
+  // Exactly 3 bytes each, high or low: two bytes short of the cap, then one byte decides.
+  const lone = Math.floor(S.OUTPUT_CAP / 3);
+  for (const u of ["\ud800", "\udc00"]) {
+    expect(S.cut(u.repeat(lone) + "a\n")).toBe(true);
+    expect(S.cut(u.repeat(lone) + "\n")).toBe(false);
+  }
   expect(S.cut("😀".repeat(S.OUTPUT_CAP / 4 - 1) + "abc\n")).toBe(true);
   expect(S.cut("😀".repeat(S.OUTPUT_CAP / 4 - 1) + "ab\n")).toBe(false);
 });
