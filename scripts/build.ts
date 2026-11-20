@@ -4,7 +4,7 @@
 //   bun run scripts/build.ts
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MOD_EDITOR, MOD_FILES, MOD_OPEN, isValidModName } from "../src/core/names";
+import { MOD_EDITOR, MOD_FILES, MOD_OPEN, MOD_SEARCH, isValidModName } from "../src/core/names";
 
 const HOST = ["herdr", "gpui-kit", "gpui-base", "fs/promises"];
 const ROOT = join(import.meta.dir, "..");
@@ -36,6 +36,16 @@ const mods: ModSpec[] = [
     name: MOD_OPEN,
     pkg: "editor",
     entry: "src/entries/editor-open.ts",
+    manifest: {
+      place: "none",
+      focusable: true,
+      overlay: { kind: "popup", at: "top", offset: 40, width: 640, height: 0.6 },
+    },
+  },
+  {
+    name: MOD_SEARCH,
+    pkg: "editor",
+    entry: "src/entries/editor-search.ts",
     manifest: {
       place: "none",
       focusable: true,

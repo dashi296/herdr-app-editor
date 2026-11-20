@@ -12,7 +12,7 @@ const dirs = (p: string) =>
     .sort();
 
 test("each package holds only its own mods", () => {
-  expect(dirs("editor/mods")).toEqual(["herdr-app-editor", "herdr-app-editor-open"]);
+  expect(dirs("editor/mods")).toEqual(["herdr-app-editor", "herdr-app-editor-open", "herdr-app-editor-search"]);
   expect(dirs("files/mods")).toEqual(["herdr-app-editor-files"]);
 });
 

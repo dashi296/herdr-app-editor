@@ -70,9 +70,9 @@ function editorIn(tab) {
   const all = panes2();
   return pickTarget(pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR), all, MOD_EDITOR, tab);
 }
-function sendTo(target, file, on) {
+function sendTo(target, file, on, at) {
   run("pane.focus", { pane: target.pane });
-  run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+  run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now(), ...at ? { at } : {} })}`);
 }
 var id = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 

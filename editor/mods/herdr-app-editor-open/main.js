@@ -2,7 +2,7 @@
 // src/ui/open-view.ts
 import { View, div } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
-import { appHome, checking, closeOverlay, exec, focused as focused3, panes as panes3, props, window } from "herdr";
+import { checking, closeOverlay, exec as exec2, focused as focused3, panes as panes3, props, window } from "herdr";
 
 // src/core/names.ts
 var NS = "herdr-app-editor";
@@ -98,9 +98,9 @@ function editorIn(tab) {
   const all = panes2();
   return pickTarget(pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR), all, MOD_EDITOR, tab);
 }
-function sendTo(target, file, on) {
+function sendTo(target, file, on, at) {
   run("pane.focus", { pane: target.pane });
-  run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+  run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now(), ...at ? { at } : {} })}`);
 }
 var id = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
@@ -133,6 +133,19 @@ function palette() {
   return out;
 }
 
+// src/ui/split.ts
+import { appHome, exec } from "herdr";
+var SPLIT_SCRIPT = 'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' + '[ -x "$cli" ] || exit 3; ' + '(i=0; while [ "$i" -lt 60 ] && HERDR_APP_HOME="$2" "$cli" status 2>/dev/null | grep -qF "\\"$3\\""; ' + "do sleep 0.05; i=$((i+1)); done; " + 'HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
+var NO_CLI = "Cannot open a new editor pane: the herdr-app command was not found (on PATH or in ~/.local/bin).";
+async function splitEditor(args, overlayMod) {
+  try {
+    const r = await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), overlayMod]);
+    return r.code === 3 ? NO_CLI : null;
+  } catch (e) {
+    return `Cannot open a new editor pane: ${String(e)}`;
+  }
+}
+
 // src/ui/open-view.ts
 var GIT_ARGS = ["ls-files", "-co", "--exclude-standard", "-z"];
 var FIND_ARGS = [
@@ -153,8 +166,6 @@ var FIND_ARGS = [
   "-print0"
 ];
 var LIST_TIMEOUT_MS = 1e4;
-var SPLIT_SCRIPT = 'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' + '[ -x "$cli" ] || exit 3; ' + '(i=0; while [ "$i" -lt 60 ] && HERDR_APP_HOME="$2" "$cli" status 2>/dev/null | grep -qF "\\"$3\\""; ' + "do sleep 0.05; i=$((i+1)); done; " + 'HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
-var NO_CLI = "Cannot open a new editor pane: the herdr-app command was not found (on PATH or in ~/.local/bin).";
 
 class OpenView extends View {
   handle = null;
@@ -197,8 +208,8 @@ class OpenView extends View {
     cx.spawn(async (cx2) => {
       try {
         const opts = { cwd, on, timeout: LIST_TIMEOUT_MS };
-        const git = await exec("git", GIT_ARGS, opts);
-        const list = git.code === 0 ? parseNul(git.stdout, LIST_LIMIT) : await exec("find", FIND_ARGS, opts).then((r) => {
+        const git = await exec2("git", GIT_ARGS, opts);
+        const list = git.code === 0 ? parseNul(git.stdout, LIST_LIMIT) : await exec2("find", FIND_ARGS, opts).then((r) => {
           if (r.stdout === "" && r.code !== 0)
             throw new Error(r.stderr || `find exited with ${r.code}`);
           return parseFind(r.stdout, LIST_LIMIT);
@@ -239,16 +250,9 @@ class OpenView extends View {
     }
     const before = panes3().filter((p) => p.mod === MOD_EDITOR).map((p) => p.pane);
     const props2 = { key: id("e"), file, on, tab: this.tab, before };
-    const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props: props2 };
+    const base = this.base;
     cx.spawn(async (cx2) => {
-      let problem = null;
-      try {
-        const r = await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN]);
-        if (r.code === 3)
-          problem = NO_CLI;
-      } catch (e) {
-        problem = `Cannot open a new editor pane: ${String(e)}`;
-      }
+      const problem = await splitEditor({ pane: base, direction: "right", mod: MOD_EDITOR, props: props2 }, MOD_OPEN);
       if (problem) {
         this.done = false;
         this.notice = problem;

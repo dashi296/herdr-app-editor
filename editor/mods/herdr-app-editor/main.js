@@ -687,6 +687,39 @@ var BUILTIN_THEMES = [one_dark_default, dracula_default, github_light_default, n
   return r.theme;
 });
 
+// src/core/jump/jump.ts
+var int = (v, min) => typeof v === "number" && Number.isInteger(v) && v >= min;
+function parseAt(v) {
+  if (!v || typeof v !== "object")
+    return null;
+  const { line, col, len } = v;
+  if (!int(line, 1))
+    return null;
+  if (col !== undefined && !int(col, 1))
+    return null;
+  if (len !== undefined && !int(len, 0))
+    return null;
+  return { line, ...col !== undefined ? { col } : {}, ...len !== undefined ? { len } : {} };
+}
+function rangeAt(text, at) {
+  let start = 0;
+  for (let n = 1;n < at.line; n++) {
+    const nl2 = text.indexOf(`
+`, start);
+    if (nl2 < 0)
+      break;
+    start = nl2 + 1;
+  }
+  const nl = text.indexOf(`
+`, start);
+  let lineEnd = nl < 0 ? text.length : nl;
+  if (lineEnd > start && text.charCodeAt(lineEnd - 1) === 13)
+    lineEnd--;
+  const from = Math.min(start + (at.col ?? 1) - 1, lineEnd);
+  const to = Math.min(from + (at.len ?? 0), lineEnd);
+  return { start: from, end: to };
+}
+
 // src/ui/palette.ts
 import { theme } from "herdr";
 var PALETTE_KEYS = [
@@ -751,12 +784,15 @@ function acceptOpen(self, m) {
   return "accept";
 }
 var idleRouting = () => ({ pending: null });
+var withAt = (at) => at ? { at } : {};
 function handleOpen(s, r, doc) {
   const effects = [];
   if (s.pending?.overlay)
     effects.push({ type: "closeDialog", overlay: s.pending.overlay });
+  if (r.at && r.file === doc.file && r.on === doc.on)
+    return { state: idleRouting(), effects: [...effects, { type: "jump", at: r.at }] };
   if (!doc.dirty)
-    return { state: idleRouting(), effects: [...effects, { type: "open", file: r.file, on: r.on }] };
+    return { state: idleRouting(), effects: [...effects, { type: "open", file: r.file, on: r.on, ...withAt(r.at) }] };
   return { state: { pending: { ...r, overlay: null } }, effects: [...effects, { type: "openDialog", req: r.req }] };
 }
 function dialogOpened(s, req, overlay) {
@@ -766,7 +802,7 @@ function handleReply(s, reply) {
   const p = s.pending;
   if (!p || p.req !== reply.req)
     return { state: s, effects: [] };
-  const effects = reply.choice === "save" ? [{ type: "saveThenOpen", file: p.file, on: p.on }] : reply.choice === "discard" ? [{ type: "open", file: p.file, on: p.on }] : [{ type: "focusEditor" }];
+  const effects = reply.choice === "save" ? [{ type: "saveThenOpen", file: p.file, on: p.on, ...withAt(p.at) }] : reply.choice === "discard" ? [{ type: "open", file: p.file, on: p.on, ...withAt(p.at) }] : [{ type: "focusEditor" }];
   return { state: idleRouting(), effects };
 }
 function interacted(s) {
@@ -977,6 +1013,8 @@ class EditorView extends View {
   seen = [];
   polling = false;
   lastPoll = 0;
+  pendingAt = null;
+  loading = null;
   splitBy = null;
   dialogProps = null;
   choice = null;
@@ -1005,6 +1043,7 @@ class EditorView extends View {
     this.themes = t.themes;
     this.themeNotes = t.messages;
     const initial = { file: typeof p.file === "string" ? p.file : null, on: typeof p.on === "string" ? p.on : null };
+    const initialAt = parseAt(p.at);
     this.splitBy = Array.isArray(p.before) && typeof p.tab === "string" ? { before: p.before.map(String), tab: p.tab } : null;
     cx.spawn(async (cx2) => {
       let target = initial;
@@ -1017,7 +1056,7 @@ class EditorView extends View {
       if (seq !== this.openSeq)
         return;
       if (target.file)
-        await this.openFile(target.file, target.on, cx2);
+        await this.openFile(target.file, target.on, cx2, target === initial ? initialAt : null);
       else
         this.screen = { kind: "empty" };
       this.claimNewPane();
@@ -1054,8 +1093,18 @@ class EditorView extends View {
     }
     await this.writer?.flush();
   }
-  async openFile(path, on, cx) {
+  async openFile(path, on, cx, at = null) {
     const seq = ++this.openSeq;
+    this.pendingAt = at;
+    this.loading = { path, on };
+    try {
+      await this.load(path, on, cx, seq);
+    } finally {
+      if (seq === this.openSeq)
+        this.loading = null;
+    }
+  }
+  async load(path, on, cx, seq) {
     const stale = () => seq !== this.openSeq;
     const leaving = this.doc;
     if (leaving && isDirty(leaving)) {
@@ -1120,6 +1169,19 @@ class EditorView extends View {
     this.draftOffer = found.draft;
     this.draftError = found.error;
     this.screen = { kind: "ready" };
+    const place = this.pendingAt;
+    this.pendingAt = null;
+    if (place)
+      this.jumpTo(place);
+  }
+  jumpTo(at) {
+    if (this.screen.kind !== "ready" || !this.code) {
+      this.pendingAt = at;
+      return;
+    }
+    const c = this.code;
+    c.set_selected_range?.(rangeAt(c.value(), at));
+    c.focus?.();
   }
   showMessage(text) {
     this.code?.release();
@@ -1361,7 +1423,12 @@ class EditorView extends View {
         return;
       this.seen = [...this.seen.slice(-31), m.req];
       this.register();
-      const r = handleOpen(this.routing, { req: m.req, file: m.file, on: m.on }, { dirty: this.doc ? isDirty(this.doc) : false });
+      const at = parseAt(m.at);
+      const r = handleOpen(this.routing, { req: m.req, file: m.file, on: m.on, ...at ? { at } : {} }, {
+        dirty: this.doc ? isDirty(this.doc) : false,
+        file: this.loading?.path ?? this.doc?.path ?? null,
+        on: this.loading ? this.loading.on : this.doc?.machine ?? null
+      });
       await this.apply(r, cx);
       return;
     }
@@ -1376,11 +1443,13 @@ class EditorView extends View {
     this.routing = r.state;
     for (const e of r.effects) {
       if (e.type === "open")
-        await this.openFile(e.file, e.on, cx);
+        await this.openFile(e.file, e.on, cx, e.at ?? null);
       else if (e.type === "saveThenOpen") {
         if (await this.save(cx))
-          await this.openFile(e.file, e.on, cx);
-      } else if (e.type === "closeDialog")
+          await this.openFile(e.file, e.on, cx, e.at ?? null);
+      } else if (e.type === "jump")
+        this.jumpTo(e.at);
+      else if (e.type === "closeDialog")
         closeOverlay(e.overlay);
       else if (e.type === "focusEditor")
         this.code?.focus?.();
