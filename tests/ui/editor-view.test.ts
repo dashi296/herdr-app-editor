@@ -703,3 +703,90 @@ describe("close", () => {
     expect(hasDraft("/p/a.txt")).toBe(true);
   });
 });
+
+describe("at: opening at a line", () => {
+  const T = "l1\nl2 foo\nl3";
+  const openAt = (req: string, file: string, at: unknown) =>
+    `open:${JSON.stringify({ to: "k1", req, file, on: null, sentAt: Date.now(), at })}`;
+
+  test("open with at selects the range after loading", async () => {
+    const v = await opened("/p/b.txt", "b");
+    files.disk.set("/p/a.txt", T);
+    await v.onCommand(openAt("r1", "/p/a.txt", { line: 2, col: 4, len: 3 }), cx);
+    await settle();
+    expect(v.doc?.path).toBe("/p/a.txt");
+    expect(code().selected).toEqual({ start: 6, end: 9 });
+    expect(code().focusCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test("a same-file at moves without reloading and keeps edits", async () => {
+    const v = await opened("/p/a.txt", T);
+    code().type("l1\nl2 foo\nl3 edited", cx);
+    const states = FakeEditorState.created.length;
+    await v.onCommand(openAt("r1", "/p/a.txt", { line: 3 }), cx);
+    await settle();
+    expect(FakeEditorState.created.length).toBe(states);
+    expect(code().text).toContain("edited");
+    expect(code().selected).toEqual({ start: 10, end: 10 });
+    expect(host.overlays).toHaveLength(0);
+  });
+
+  test("a same-file at while that file loads is applied after the load", async () => {
+    const v = await opened("/p/b.txt", "b");
+    files.disk.set("/p/a.txt", T);
+    const gate = deferred<void>();
+    files.gates.read = gate;
+    const first = v.onCommand(openAt("r1", "/p/a.txt", { line: 2 }), cx);
+    await settle();
+    expect(v.screen.kind).toBe("loading");
+    await v.onCommand(openAt("r2", "/p/a.txt", { line: 3 }), cx);
+    gate.resolve();
+    await first;
+    await settle();
+    expect(code().selected).toEqual({ start: 10, end: 10 });
+  });
+
+  test("an at for the shown file while another file loads opens the shown file again at that line", async () => {
+    const v = await opened("/p/a.txt", T);
+    files.disk.set("/p/b.txt", "b");
+    const gate = deferred<void>();
+    files.gates.read = gate;
+    const first = v.onCommand(openAt("r1", "/p/b.txt", { line: 1 }), cx);
+    await settle();
+    await v.onCommand(openAt("r2", "/p/a.txt", { line: 3 }), cx);
+    gate.resolve();
+    await first;
+    await settle();
+    expect(v.doc?.path).toBe("/p/a.txt");
+    expect(code().selected).toEqual({ start: 10, end: 10 });
+  });
+
+  test("split props at is used on the first load", async () => {
+    files.disk.set("/p/a.txt", T);
+    host.props = { key: "k1", file: "/p/a.txt", at: { line: 2 } };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    expect(code().selected).toEqual({ start: 3, end: 3 });
+  });
+
+  test("split props at is ignored when a saved pane state exists", async () => {
+    files.disk.set("/p/a.txt", T);
+    await new SlotStore(io).save(paneBase("k1"), { file: "/p/a.txt", on: null });
+    host.props = { key: "k1", file: "/p/a.txt", at: { line: 2 } };
+    const v = makeView();
+    v.init(undefined, cx);
+    await settle();
+    expect(v.screen.kind).toBe("ready");
+    expect(code().selected).toBeNull();
+  });
+
+  test("an unopenable file ignores at", async () => {
+    const v = await opened("/p/b.txt", "b");
+    const before = FakeEditorState.created.length;
+    await v.onCommand(openAt("r1", "/p/missing.txt", { line: 2 }), cx);
+    await settle();
+    expect(v.screen.kind).toBe("message");
+    expect(FakeEditorState.created.length).toBe(before);
+  });
+});

@@ -82,41 +82,55 @@ describe("open requests and the save/discard/cancel dialog", () => {
   const req = (n: number) => ({ req: `r${n}`, file: `/p/${n}.ts`, on: null });
 
   test("clean: open right away", () => {
-    const { state, effects } = handleOpen(idleRouting(), req(1), { dirty: false });
+    const { state, effects } = handleOpen(idleRouting(), req(1), { dirty: false, file: null, on: null });
     expect(effects).toEqual([{ type: "open", file: "/p/1.ts", on: null }]);
     expect(state.pending).toBeNull();
   });
 
   test("dirty: ask first, then follow the choice", () => {
-    let { state, effects } = handleOpen(idleRouting(), req(1), { dirty: true });
+    let { state, effects } = handleOpen(idleRouting(), req(1), { dirty: true, file: null, on: null });
     expect(effects).toEqual([{ type: "openDialog", req: "r1" }]);
     state = dialogOpened(state, "r1", "o1");
     let r = handleReply(state, { req: "r1", choice: "save" });
     expect(r.effects).toEqual([{ type: "saveThenOpen", file: "/p/1.ts", on: null }]);
     expect(r.state.pending).toBeNull();
 
-    r = handleReply(dialogOpened(handleOpen(idleRouting(), req(2), { dirty: true }).state, "r2", "o2"), {
-      req: "r2",
-      choice: "discard",
-    });
+    r = handleReply(
+      dialogOpened(handleOpen(idleRouting(), req(2), { dirty: true, file: null, on: null }).state, "r2", "o2"),
+      {
+        req: "r2",
+        choice: "discard",
+      },
+    );
     expect(r.effects).toEqual([{ type: "open", file: "/p/2.ts", on: null }]);
 
-    r = handleReply(dialogOpened(handleOpen(idleRouting(), req(3), { dirty: true }).state, "r3", "o3"), {
-      req: "r3",
-      choice: "cancel",
-    });
+    r = handleReply(
+      dialogOpened(handleOpen(idleRouting(), req(3), { dirty: true, file: null, on: null }).state, "r3", "o3"),
+      {
+        req: "r3",
+        choice: "cancel",
+      },
+    );
     expect(r.effects).toEqual([{ type: "focusEditor" }]);
   });
 
   test("only the first reply counts (close() replies again after a button)", () => {
-    let state = dialogOpened(handleOpen(idleRouting(), req(1), { dirty: true }).state, "r1", "o1");
+    let state = dialogOpened(
+      handleOpen(idleRouting(), req(1), { dirty: true, file: null, on: null }).state,
+      "r1",
+      "o1",
+    );
     const first = handleReply(state, { req: "r1", choice: "discard" });
     expect(handleReply(first.state, { req: "r1", choice: "cancel" }).effects).toEqual([]);
   });
 
   test("a new request while asking replaces the dialog; the old reply is ignored", () => {
-    let state = dialogOpened(handleOpen(idleRouting(), req(1), { dirty: true }).state, "r1", "o1");
-    const r = handleOpen(state, req(2), { dirty: true });
+    let state = dialogOpened(
+      handleOpen(idleRouting(), req(1), { dirty: true, file: null, on: null }).state,
+      "r1",
+      "o1",
+    );
+    const r = handleOpen(state, req(2), { dirty: true, file: null, on: null });
     expect(r.effects).toEqual([
       { type: "closeDialog", overlay: "o1" },
       { type: "openDialog", req: "r2" },
@@ -129,10 +143,64 @@ describe("open requests and the save/discard/cancel dialog", () => {
   });
 
   test("typing in the editor while a reply is pending means the reply was lost: cancel", () => {
-    const state = dialogOpened(handleOpen(idleRouting(), req(1), { dirty: true }).state, "r1", "o1");
+    const state = dialogOpened(
+      handleOpen(idleRouting(), req(1), { dirty: true, file: null, on: null }).state,
+      "r1",
+      "o1",
+    );
     const r = interacted(state);
     expect(r.state.pending).toBeNull();
     expect(r.effects).toEqual([{ type: "closeDialog", overlay: "o1" }]);
     expect(interacted(r.state).effects).toEqual([]);
+  });
+});
+
+describe("opening at a line", () => {
+  const AT = { line: 4, col: 2, len: 3 };
+  test("same file with at: jump, no dialog, even when dirty", () => {
+    const r = handleOpen(
+      idleRouting(),
+      { req: "r1", file: "/a", on: null, at: AT },
+      { dirty: true, file: "/a", on: null },
+    );
+    expect(r.effects).toEqual([{ type: "jump", at: AT }]);
+    expect(r.state.pending).toBeNull();
+  });
+  test("same file with at closes a pending dialog for another file", () => {
+    const s = { pending: { req: "r0", file: "/b", on: null, overlay: "ov1" } };
+    const r = handleOpen(s, { req: "r1", file: "/a", on: null, at: AT }, { dirty: true, file: "/a", on: null });
+    expect(r.effects).toEqual([
+      { type: "closeDialog", overlay: "ov1" },
+      { type: "jump", at: AT },
+    ]);
+  });
+  test("same file without at keeps today's behaviour (dialog when dirty)", () => {
+    const r = handleOpen(idleRouting(), { req: "r1", file: "/a", on: null }, { dirty: true, file: "/a", on: null });
+    expect(r.effects).toEqual([{ type: "openDialog", req: "r1" }]);
+  });
+  test("other file with at: open carries at; after the dialog, save and discard carry it", () => {
+    expect(
+      handleOpen(idleRouting(), { req: "r1", file: "/b", on: null, at: AT }, { dirty: false, file: "/a", on: null })
+        .effects,
+    ).toEqual([{ type: "open", file: "/b", on: null, at: AT }]);
+    const p = handleOpen(
+      idleRouting(),
+      { req: "r1", file: "/b", on: null, at: AT },
+      { dirty: true, file: "/a", on: null },
+    );
+    expect(handleReply(p.state, { req: "r1", choice: "save" }).effects).toEqual([
+      { type: "saveThenOpen", file: "/b", on: null, at: AT },
+    ]);
+    expect(handleReply(p.state, { req: "r1", choice: "discard" }).effects).toEqual([
+      { type: "open", file: "/b", on: null, at: AT },
+    ]);
+  });
+  test("same path on another machine is another file", () => {
+    const r = handleOpen(
+      idleRouting(),
+      { req: "r1", file: "/a", on: "vps", at: AT },
+      { dirty: false, file: "/a", on: null },
+    );
+    expect(r.effects).toEqual([{ type: "open", file: "/a", on: "vps", at: AT }]);
   });
 });

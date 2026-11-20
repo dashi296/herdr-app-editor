@@ -1,4 +1,6 @@
 // Opening files from editor-files in an editor pane (plan §3, spike S5). Pure.
+import type { At } from "../jump/jump";
+
 // Messages travel as `<mod>.<verb>:<json>` commands; they reach every shown copy, so each carries `to`.
 
 export interface PaneLite {
@@ -65,6 +67,8 @@ export interface OpenMessage {
   file: string;
   on: string | null;
   sentAt: number;
+  /** Where to put the cursor once the file is open. */
+  at?: At;
 }
 
 /** Requests older than this are left alone (hot reload or a restarted copy: plan §3). */
@@ -84,12 +88,14 @@ export interface OpenRequest {
   req: string;
   file: string;
   on: string | null;
+  at?: At;
 }
 export type Choice = "save" | "discard" | "cancel";
 
 export type Effect =
-  | { type: "open"; file: string; on: string | null }
-  | { type: "saveThenOpen"; file: string; on: string | null }
+  | { type: "open"; file: string; on: string | null; at?: At }
+  | { type: "saveThenOpen"; file: string; on: string | null; at?: At }
+  | { type: "jump"; at: At }
   | { type: "openDialog"; req: string }
   | { type: "closeDialog"; overlay: string }
   | { type: "focusEditor" };
@@ -100,11 +106,24 @@ export interface Routing {
 
 export const idleRouting = (): Routing => ({ pending: null });
 
-/** An accepted open request: open now, or ask save/discard/cancel when the document is dirty. */
-export function handleOpen(s: Routing, r: OpenRequest, doc: { dirty: boolean }): { state: Routing; effects: Effect[] } {
+const withAt = (at: At | undefined) => (at ? { at } : {});
+
+/**
+ * An accepted open request: open now, or ask save/discard/cancel when the document is dirty.
+ * A request with `at` for the file already open only moves the cursor: no dialog, no reload,
+ * unsaved edits kept.
+ */
+export function handleOpen(
+  s: Routing,
+  r: OpenRequest,
+  doc: { dirty: boolean; file: string | null; on: string | null },
+): { state: Routing; effects: Effect[] } {
   const effects: Effect[] = [];
   if (s.pending?.overlay) effects.push({ type: "closeDialog", overlay: s.pending.overlay });
-  if (!doc.dirty) return { state: idleRouting(), effects: [...effects, { type: "open", file: r.file, on: r.on }] };
+  if (r.at && r.file === doc.file && r.on === doc.on)
+    return { state: idleRouting(), effects: [...effects, { type: "jump", at: r.at }] };
+  if (!doc.dirty)
+    return { state: idleRouting(), effects: [...effects, { type: "open", file: r.file, on: r.on, ...withAt(r.at) }] };
   return { state: { pending: { ...r, overlay: null } }, effects: [...effects, { type: "openDialog", req: r.req }] };
 }
 
@@ -118,9 +137,9 @@ export function handleReply(s: Routing, reply: { req: string; choice: Choice }):
   if (!p || p.req !== reply.req) return { state: s, effects: [] };
   const effects: Effect[] =
     reply.choice === "save"
-      ? [{ type: "saveThenOpen", file: p.file, on: p.on }]
+      ? [{ type: "saveThenOpen", file: p.file, on: p.on, ...withAt(p.at) }]
       : reply.choice === "discard"
-        ? [{ type: "open", file: p.file, on: p.on }]
+        ? [{ type: "open", file: p.file, on: p.on, ...withAt(p.at) }]
         : [{ type: "focusEditor" }];
   return { state: idleRouting(), effects };
 }

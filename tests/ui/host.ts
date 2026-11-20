@@ -51,6 +51,18 @@ export class FakeEditorState {
   release() {
     this.released = true;
   }
+  /** The last range set_selected_range was given (null: never). */
+  selected: { start: number; end: number } | null = null;
+  focusCount = 0;
+  set_selected_range(r: { start: number; end: number }) {
+    this.selected = r;
+  }
+  selected_range() {
+    return this.selected ?? { start: 0, end: 0 };
+  }
+  focus() {
+    this.focusCount++;
+  }
   /** The user types: the text changes and the "change" event fires. */
   type(text: string, cx: unknown) {
     this.text = text;
