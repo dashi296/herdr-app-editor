@@ -82,6 +82,13 @@ describe("searching", () => {
     ]);
   });
 
+  test("a search waits 250 ms after the last keystroke", async () => {
+    await start();
+    cx.sleeps = [];
+    await type("foo");
+    expect(cx.sleeps).toEqual([250]);
+  });
+
   test("outside git uses grep", async () => {
     inGit = false;
     await start();
