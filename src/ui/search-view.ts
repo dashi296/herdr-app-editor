@@ -14,6 +14,7 @@ import {
   grepArgs,
   parseGitGrep,
   parseGrep,
+  cut,
   type Hit,
   type Hits,
 } from "../core/search/search";
@@ -112,7 +113,7 @@ export class SearchView extends View {
         ? await exec("git", gitGrepArgs(q), { cwd, on, timeout: SEARCH_TIMEOUT_MS })
         : await exec("grep", grepArgs(q), { cwd, on, timeout: SEARCH_TIMEOUT_MS });
       const parse = (out: string): Hits => (git ? parseGitGrep(out, q) : parseGrep(out, q));
-      if (r.code === 0) next = { kind: "ready", ...parse(r.stdout), early: false };
+      if (r.code === 0) next = { kind: "ready", ...parse(r.stdout), early: cut(r.stdout) };
       else if (r.stdout !== "") next = { kind: "ready", ...parse(r.stdout), early: true };
       else if (r.code === 1) next = { kind: "message", text: "No matches." };
       else next = { kind: "message", text: `Cannot search this folder: ${r.stderr.trim() || `exit ${r.code}`}` };

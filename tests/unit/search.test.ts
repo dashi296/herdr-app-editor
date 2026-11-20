@@ -37,6 +37,7 @@ test("git grep args", () => {
 test("grep args", () => {
   expect(S.grepArgs("-x")).toEqual([
     "-rnI",
+    "--null",
     "-F",
     "-i",
     "--exclude-dir=.git",
@@ -75,9 +76,20 @@ test("a cut-off last line is dropped", () => {
   ]);
 });
 test("parseGrep strips ./ and finds the column case-insensitively", () => {
-  expect(S.parseGrep("./d/x.md:7:Hello FOO bar\n", "foo").hits).toEqual([
+  expect(S.parseGrep("./d/x.md\x007:Hello FOO bar\n", "foo").hits).toEqual([
     { path: "d/x.md", line: 7, col: 7, len: 3, text: "Hello FOO bar" },
   ]);
+});
+test("a path with :digits: in it is read whole (grep --null)", () => {
+  expect(S.parseGrep("./logs:2026:r/x:7:y.txt\x001:foo\n", "foo").hits[0]).toMatchObject({
+    path: "logs:2026:r/x:7:y.txt",
+    line: 1,
+  });
+});
+test("cut tells whether the output ended mid-line", () => {
+  expect(S.cut("a\x001\x001\x00foo\n")).toBe(false);
+  expect(S.cut("")).toBe(false);
+  expect(S.cut("a\x001\x001\x00fo")).toBe(true);
 });
 test("hits are capped at HIT_LIMIT", () => {
   const out = Array.from({ length: S.HIT_LIMIT + 5 }, (_, i) => `f.ts\x00${i + 1}\x001\x00foo\n`).join("");

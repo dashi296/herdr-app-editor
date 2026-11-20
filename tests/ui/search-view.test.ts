@@ -149,6 +149,24 @@ describe("searching", () => {
     expect(texts).toContain("Stopped early: showing what was found");
   });
 
+  test("output cut mid-line with exit 0 (the 8 MiB cap) says it stopped early", async () => {
+    answer = () => ({ code: 0, stdout: "a.ts\x001\x001\x00foo\nb.ts\x002\x001\x00fo", stderr: "" });
+    const v = await start();
+    await type("foo");
+    const texts = shown(v);
+    expect(texts).toContain("a.ts:1");
+    expect(texts).toContain("Stopped early: showing what was found");
+  });
+
+  test("a single cut line with exit 0 is not reported as No matches.", async () => {
+    answer = () => ({ code: 0, stdout: "a.ts\x001\x001\x00fo", stderr: "" });
+    const v = await start();
+    await type("foo");
+    const texts = shown(v);
+    expect(texts).not.toContain("No matches.");
+    expect(texts).toContain("Stopped early: showing what was found");
+  });
+
   test("an error exit without output shows the error", async () => {
     answer = () => ({ code: 2, stdout: "", stderr: "grep: bad" });
     const v = await start();

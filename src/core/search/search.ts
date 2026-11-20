@@ -37,7 +37,7 @@ export function gitGrepArgs(q: string): string[] {
 }
 
 export function grepArgs(q: string): string[] {
-  return ["-rnI", "-F", ...caseFlag(q), "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", q, "."];
+  return ["-rnI", "--null", "-F", ...caseFlag(q), "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", q, "."];
 }
 
 /** git grep's 1-based byte column as a 1-based UTF-16 column of `line`. */
@@ -58,6 +58,9 @@ function completeLines(stdout: string): string[] {
   const end = stdout.lastIndexOf("\n");
   return end < 0 ? [] : stdout.slice(0, end).split("\n");
 }
+
+/** The output ended mid-line: it was cut (exec keeps 8 MiB and still reports exit 0). */
+export const cut = (stdout: string): boolean => stdout !== "" && !stdout.endsWith("\n");
 
 const show = (line: string) => line.trim().slice(0, LINE_SHOW);
 const stripCr = (s: string) => (s.endsWith("\r") ? s.slice(0, -1) : s);
@@ -94,11 +97,11 @@ export function parseGitGrep(stdout: string, q: string): Hits {
   });
 }
 
-/** `grep -rn` output: `./path:line:text`. The column is the first match of `q` in the line. */
+/** `grep -rn --null` output: `./path\0line:text` (the NUL keeps a path with `:7:` in it whole). The column is the first match of `q` in the line. */
 export function parseGrep(stdout: string, q: string): Hits {
   const fold = ignoreCase(q);
   return collect(stdout, (raw) => {
-    const m = /^(.*?):(\d+):(.*)$/s.exec(raw);
+    const m = /^([^\0]*)\0(\d+):(.*)$/s.exec(raw);
     if (!m) return null;
     const text = stripCr(m[3]!);
     const at = (fold ? text.toLowerCase() : text).indexOf(q);

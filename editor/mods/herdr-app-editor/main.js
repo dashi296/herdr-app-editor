@@ -1104,7 +1104,7 @@ class EditorView extends View {
         this.loading = null;
         const place = this.pendingAt;
         this.pendingAt = null;
-        if (place && this.screen.kind === "ready")
+        if (place && this.screen.kind === "ready" && this.doc?.path === path && this.doc.machine === on)
           this.jumpTo(place);
       }
     }

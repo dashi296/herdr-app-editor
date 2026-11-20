@@ -265,7 +265,9 @@ export abstract class EditorView extends View {
         this.loading = null;
         const place = this.pendingAt;
         this.pendingAt = null;
-        if (place && this.screen.kind === "ready") this.jumpTo(place); // not when the file did not open
+        // Only in the file it was meant for: the load may have been given up, leaving another file shown.
+        if (place && this.screen.kind === "ready" && this.doc?.path === path && this.doc.machine === on)
+          this.jumpTo(place);
       }
     }
   }

@@ -786,6 +786,24 @@ describe("at: opening at a line", () => {
     expect(code().selected).toEqual({ start: 10, end: 10 });
   });
 
+  test("an at for a file whose opening was given up is not applied to the file that stayed", async () => {
+    const v = await opened("/p/a.txt", "a1\na2\na3\n");
+    code().type("a1\na2\na3 edited\n", cx);
+    await settle();
+    files.disk.set("/p/b.txt", T);
+    await v.onCommand(openAt("r1", "/p/b.txt", { line: 3 }), cx);
+    const gate = deferred<void>();
+    io.unlinkGate = gate;
+    const leaving = v.onCommand(`reply:${JSON.stringify({ to: "k1", req: "r1", choice: "discard" })}`, cx);
+    await settle();
+    code().type("a1\na2\na3 edited again\n", cx); // edited after choosing: a.txt stays
+    gate.resolve();
+    await leaving;
+    await settle();
+    expect(v.doc?.path).toBe("/p/a.txt");
+    expect(code().selected).toBeNull();
+  });
+
   test("split props at is used on the first load", async () => {
     files.disk.set("/p/a.txt", T);
     host.props = { key: "k1", file: "/p/a.txt", at: { line: 2 } };

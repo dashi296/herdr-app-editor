@@ -21,7 +21,7 @@ function gitGrepArgs(q) {
   return ["grep", "-n", "-I", "--column", "--no-color", "--untracked", "-z", "-F", ...caseFlag(q), "-e", q];
 }
 function grepArgs(q) {
-  return ["-rnI", "-F", ...caseFlag(q), "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", q, "."];
+  return ["-rnI", "--null", "-F", ...caseFlag(q), "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", q, "."];
 }
 function byteToUtf16Col(line, byteCol) {
   let bytes = 0, units = 0;
@@ -40,6 +40,8 @@ function completeLines(stdout) {
   return end < 0 ? [] : stdout.slice(0, end).split(`
 `);
 }
+var cut = (stdout) => stdout !== "" && !stdout.endsWith(`
+`);
 var show = (line) => line.trim().slice(0, LINE_SHOW);
 var stripCr = (s) => s.endsWith("\r") ? s.slice(0, -1) : s;
 function collect(stdout, read) {
@@ -75,7 +77,7 @@ function parseGitGrep(stdout, q) {
 function parseGrep(stdout, q) {
   const fold = ignoreCase(q);
   return collect(stdout, (raw) => {
-    const m = /^(.*?):(\d+):(.*)$/s.exec(raw);
+    const m = /^([^\0]*)\0(\d+):(.*)$/s.exec(raw);
     if (!m)
       return null;
     const text = stripCr(m[3]);
@@ -253,7 +255,7 @@ class SearchView extends View {
       const r = git ? await exec2("git", gitGrepArgs(q), { cwd, on, timeout: SEARCH_TIMEOUT_MS }) : await exec2("grep", grepArgs(q), { cwd, on, timeout: SEARCH_TIMEOUT_MS });
       const parse = (out) => git ? parseGitGrep(out, q) : parseGrep(out, q);
       if (r.code === 0)
-        next = { kind: "ready", ...parse(r.stdout), early: false };
+        next = { kind: "ready", ...parse(r.stdout), early: cut(r.stdout) };
       else if (r.stdout !== "")
         next = { kind: "ready", ...parse(r.stdout), early: true };
       else if (r.code === 1)
