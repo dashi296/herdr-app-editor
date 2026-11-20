@@ -1,3 +1,4 @@
 Upstream: herdrdev/herdr-app 317e673 defaults/mods/files/. v0.1.15 and v0.1.16 differ in one line of main.js: the preview there is 12 px, not `settings().font_size`.
 main.js: Apache-2.0 (LICENSE). Icons: Lucide, ISC (LICENSE-Lucide.txt; see upstream THIRD-PARTY-NOTICES "Lucide / Feather icons").
 Keep these files unmodified; the fork is src/entries/editor-files.js.
+The `upstream-drift` workflow compares these files with upstream master once a week. When it fails: copy the changed files here and delete the ones upstream deleted, update the commit ID above and in src/entries/editor-files.js and files/RECIPE.md, make the same change in src/entries/editor-files.js, and run `bun run build`. The build copies a fixed list of files from here (scripts/build.ts), so an icon added or deleted upstream needs that list changed too. To check by hand: `scripts/check-upstream-drift.sh <herdr-app checkout>`.
