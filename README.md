@@ -5,7 +5,7 @@ Two pieces you add to the layout you already use, each listed on [herdr.dev/mods
 
 | Folder | What it is |
 |---|---|
-| [`editor/`](editor/RECIPE.md) | **Herdr Editor**: an editable editor pane, and quick open (cmd-o) to find a file by name and open it there. |
+| [`editor/`](editor/RECIPE.md) | **Herdr Editor**: an editable editor pane, quick open (cmd-o) to find a file by name, and text search (cmd-shift-f) to open a match at its line. |
 | [`files/`](files/RECIPE.md) | **Herdr Editor Files**: Herdr's Files panel, changed so that clicking a file opens it in Herdr Editor. Without Herdr Editor it shows a read-only preview in the panel. |
 
 ![Herdr Editor](editor/preview.png)
@@ -30,7 +30,7 @@ Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dashi2
 Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dashi296/herdr-app-editor/tree/main/files
 ```
 
-The agent copies the mod folders into `~/.config/herdr-app/mods/`. For `editor/`, it asks which key opens quick open (cmd-o by default) and adds it to `keys.json`; from then on Herdr updates no longer add new default keys to that file. For `files/`, it points the Files block of your layout at the new panel. If your layout is one of Herdr's own, it asks for a name and makes a copy first, and switches to that copy. Each RECIPE.md says how to remove it again.
+The agent copies the mod folders into `~/.config/herdr-app/mods/`. For `editor/`, it asks which keys open quick open and text search (cmd-o and cmd-shift-f by default) and adds them to `keys.json`; from then on Herdr updates no longer add new default keys to that file. For `files/`, it points the Files block of your layout at the new panel. If your layout is one of Herdr's own, it asks for a name and makes a copy first, and switches to that copy. Each RECIPE.md says how to remove it again.
 
 Nothing needs building: the built `main.js` files are committed. Requires Herdr Desktop 0.1.16 or later.
 

@@ -2,6 +2,7 @@
 // to the right of the focused pane. Used by the Files fork and the quick open overlay. Messages are
 // `<mod>.open:<json>` commands (src/core/routing/routing.ts, spike S5).
 import { focused, panes, run, setShared, shared } from "herdr";
+import type { At } from "../core/jump/jump";
 import { MOD_EDITOR, SHARED_KEY } from "../core/names";
 import { encodeCommand, newPaneAfterSplit, pickTarget, pruneRegistry, type Registry } from "../core/routing/routing";
 
@@ -35,11 +36,13 @@ export function editorIn(tab: string): { key: string; pane: string } | null {
   return pickTarget(pruneRegistry(readShared().registry ?? {}, all, MOD_EDITOR), all, MOD_EDITOR, tab);
 }
 
-/** Shows that editor and sends it the file. */
-export function sendTo(target: { key: string; pane: string }, file: string, on: string | null): void {
+/** Shows that editor and sends it the file, to be opened at `at` when given. */
+export function sendTo(target: { key: string; pane: string }, file: string, on: string | null, at?: At): void {
   // pane.focus first: FIFO delivery makes the editor shown when "open" arrives (spike S5).
   run("pane.focus", { pane: target.pane });
-  run(`${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now() })}`);
+  run(
+    `${MOD_EDITOR}.${encodeCommand("open", { to: target.key, req: id("r"), file, on, sentAt: Date.now(), ...(at ? { at } : {}) })}`,
+  );
 }
 
 export const id = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;

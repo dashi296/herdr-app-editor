@@ -51,6 +51,18 @@ export class FakeEditorState {
   release() {
     this.released = true;
   }
+  /** The last range set_selected_range was given (null: never). */
+  selected: { start: number; end: number } | null = null;
+  focusCount = 0;
+  set_selected_range(r: { start: number; end: number }) {
+    this.selected = r;
+  }
+  selected_range() {
+    return this.selected ?? { start: 0, end: 0 };
+  }
+  focus() {
+    this.focusCount++;
+  }
   /** The user types: the text changes and the "change" event fires. */
   type(text: string, cx: unknown) {
     this.text = text;
@@ -265,6 +277,8 @@ export interface FakeCx {
   timer: { every(ms: number, fn: unknown): void; after(ms: number, fn: () => void): { cancel(): void } };
   stop_propagation(): void;
   sleep(ms: number): Promise<void>;
+  /** Every delay sleep() was asked for (it resolves at once). */
+  sleeps: number[];
 }
 
 export function makeCx(): FakeCx {
@@ -288,7 +302,11 @@ export function makeCx(): FakeCx {
       },
     },
     stop_propagation() {},
-    sleep: () => new Promise((r) => setTimeout(r, 0)),
+    sleeps: [],
+    sleep: (ms) => {
+      cx.sleeps.push(ms);
+      return new Promise((r) => setTimeout(r, 0));
+    },
   };
   return cx;
 }

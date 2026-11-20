@@ -7,12 +7,15 @@
 // `herdr-app do pane.split` that runs after the overlay has closed.
 import { View, div, type AsyncContext, type Context, type Element, type KeyEvent } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
-import { appHome, checking, closeOverlay, exec, focused, panes, props, window } from "herdr";
+import { checking, closeOverlay, exec, focused, panes, props, window } from "herdr";
 import { MOD_EDITOR, MOD_OPEN } from "../core/names";
 import { LIST_LIMIT, SHOW_LIMIT, parseFind, parseNul, rankPaths } from "../core/quick-open/match";
 import { activeTab, currentLocation, type Location } from "./location";
 import { editorIn, id, sendTo } from "./opener";
 import { palette } from "./palette";
+import { splitEditor } from "./split";
+
+export { SPLIT_SCRIPT } from "./split";
 
 const GIT_ARGS = ["ls-files", "-co", "--exclude-standard", "-z"];
 // Outside Git: every file to 12 levels down, without .git and node_modules, NUL-separated.
@@ -35,20 +38,6 @@ const FIND_ARGS = [
 ];
 /** A listing that takes longer is cut off (a terminal sitting in a huge folder such as ~). */
 export const LIST_TIMEOUT_MS = 10_000;
-
-/**
- * Run as `sh -c SPLIT_SCRIPT sh <pane.split args JSON> <app home> <overlay mod>`. Exits 3 at once
- * if `herdr-app` cannot be found. Otherwise it returns at once; in the background it waits until
- * `herdr-app status` no longer lists the overlay (at most 60 checks 50 ms apart: about 3 s plus the time
- * the checks take), then splits the pane.
- */
-export const SPLIT_SCRIPT =
-  'cli=$(command -v herdr-app || echo "$HOME/.local/bin/herdr-app"); ' +
-  '[ -x "$cli" ] || exit 3; ' +
-  '(i=0; while [ "$i" -lt 60 ] && HERDR_APP_HOME="$2" "$cli" status 2>/dev/null | grep -qF "\\"$3\\""; ' +
-  "do sleep 0.05; i=$((i+1)); done; " +
-  'HERDR_APP_HOME="$2" "$cli" do pane.split "$1" >/dev/null 2>&1) >/dev/null 2>&1 &';
-const NO_CLI = "Cannot open a new editor pane: the herdr-app command was not found (on PATH or in ~/.local/bin).";
 
 type State = { kind: "loading" } | { kind: "message"; text: string } | { kind: "ready" };
 
@@ -150,16 +139,9 @@ export class OpenView extends View {
       .filter((p) => p.mod === MOD_EDITOR)
       .map((p) => p.pane);
     const props = { key: id("e"), file, on, tab: this.tab, before };
-    const args = { pane: this.base, direction: "right", mod: MOD_EDITOR, props };
+    const base = this.base;
     cx.spawn(async (cx) => {
-      let problem: string | null = null;
-      try {
-        const r = await exec("sh", ["-c", SPLIT_SCRIPT, "sh", JSON.stringify(args), appHome(), MOD_OPEN]);
-        if (r.code === 3) problem = NO_CLI;
-      } catch (e) {
-        // sh did not start (none on Windows, or a spawn error): no background split exists either.
-        problem = `Cannot open a new editor pane: ${String(e)}`;
-      }
+      const problem = await splitEditor({ pane: base, direction: "right", mod: MOD_EDITOR, props }, MOD_OPEN);
       if (problem) {
         this.done = false; // the person can fix it and press Enter again
         this.notice = problem; // above the list, which stays on screen: Enter opens what is shown

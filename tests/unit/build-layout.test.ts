@@ -12,7 +12,7 @@ const dirs = (p: string) =>
     .sort();
 
 test("each package holds only its own mods", () => {
-  expect(dirs("editor/mods")).toEqual(["herdr-app-editor", "herdr-app-editor-open"]);
+  expect(dirs("editor/mods")).toEqual(["herdr-app-editor", "herdr-app-editor-open", "herdr-app-editor-search"]);
   expect(dirs("files/mods")).toEqual(["herdr-app-editor-files"]);
 });
 
@@ -21,9 +21,9 @@ test("no package folder has layouts/ and the root has no RECIPE.md, mods/ or lay
     expect(existsSync(join(ROOT, p))).toBe(false);
 });
 
-test("editor/keys.json binds cmd-o to the overlay", () => {
+test("editor/keys.json binds cmd-o to quick open and cmd-shift-f to text search", () => {
   expect(JSON.parse(readFileSync(join(ROOT, "editor/keys.json"), "utf8"))).toEqual({
-    global: { "cmd-o": "mod.open:herdr-app-editor-open" },
+    global: { "cmd-o": "mod.open:herdr-app-editor-open", "cmd-shift-f": "mod.open:herdr-app-editor-search" },
   });
 });
 

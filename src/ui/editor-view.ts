@@ -42,6 +42,7 @@ import { highlightFor, languageFor } from "../core/language/language";
 import { BUILTIN_THEMES } from "../core/theme/builtin";
 import { HERDR_THEME, nextTheme, pickTheme, resolveSyntax, themeNames, type EditorTheme } from "../core/theme/theme";
 import { MOD_EDITOR, MOD_OPEN, SHARED_KEY } from "../core/names";
+import { parseAt, rangeAt, type At } from "../core/jump/jump";
 import { palette, type Palette } from "./palette";
 import {
   acceptOpen,
@@ -157,6 +158,10 @@ export abstract class EditorView extends View {
   private seen: string[] = [];
   private polling = false;
   private lastPoll = 0;
+  /** Where to put the cursor once the file being opened is ready (opening at a line). */
+  private pendingAt: At | null = null;
+  /** The file openFile is loading, if any: a request with `at` for it only moves the cursor. */
+  private loading: { path: string; on: string | null } | null = null;
   /** From quick open's split props: the editor panes that existed before it, and its tab. */
   private splitBy: { before: string[]; tab: string } | null = null;
   // dialog role
@@ -192,6 +197,8 @@ export abstract class EditorView extends View {
     this.themes = t.themes;
     this.themeNotes = t.messages;
     const initial = { file: typeof p.file === "string" ? p.file : null, on: typeof p.on === "string" ? p.on : null };
+    // Used once: a restarted pane opens its saved state, not the place it was first opened at.
+    const initialAt = parseAt(p.at);
     // Read now: on the device props() is empty by the time the first load ends.
     this.splitBy =
       Array.isArray(p.before) && typeof p.tab === "string" ? { before: p.before.map(String), tab: p.tab } : null;
@@ -206,7 +213,7 @@ export abstract class EditorView extends View {
       }
       // A file opened from Files while this was loading wins over the remembered one (review).
       if (seq !== this.openSeq) return;
-      if (target.file) await this.openFile(target.file, target.on, cx);
+      if (target.file) await this.openFile(target.file, target.on, cx, target === initial ? initialAt : null);
       else this.screen = { kind: "empty" };
       this.claimNewPane();
       cx.notify();
@@ -247,8 +254,25 @@ export abstract class EditorView extends View {
 
   // ---------- opening ----------
 
-  private async openFile(path: string, on: string | null, cx: AsyncContext): Promise<void> {
+  private async openFile(path: string, on: string | null, cx: AsyncContext, at: At | null = null): Promise<void> {
     const seq = ++this.openSeq;
+    this.pendingAt = at;
+    this.loading = { path, on };
+    try {
+      await this.load(path, on, cx, seq);
+    } finally {
+      if (seq === this.openSeq) {
+        this.loading = null;
+        const place = this.pendingAt;
+        this.pendingAt = null;
+        // Only in the file it was meant for: the load may have been given up, leaving another file shown.
+        if (place && this.screen.kind === "ready" && this.doc?.path === path && this.doc.machine === on)
+          this.jumpTo(place);
+      }
+    }
+  }
+
+  private async load(path: string, on: string | null, cx: AsyncContext, seq: number): Promise<void> {
     const stale = () => seq !== this.openSeq;
     // Leaving a dirty document only happens after "Don't save": its draft goes too.
     const leaving = this.doc;
@@ -322,6 +346,22 @@ export abstract class EditorView extends View {
     this.draftOffer = found.draft;
     this.draftError = found.error;
     this.screen = { kind: "ready" };
+  }
+
+  /** Selects `at` in the editor; EditorState scrolls the selection into view (spike S12). */
+  private jumpTo(at: At) {
+    if (this.loading || this.screen.kind !== "ready" || !this.code) {
+      // A file is being opened (perhaps still leaving the dirty one): openFile applies it when ready.
+      this.pendingAt = at;
+      return;
+    }
+    const c = this.code as {
+      value(): string;
+      set_selected_range?: (r: { start: number; end: number }) => void;
+      focus?: () => void;
+    };
+    c.set_selected_range?.(rangeAt(c.value(), at));
+    c.focus?.();
   }
 
   private showMessage(text: string) {
@@ -592,10 +632,15 @@ export abstract class EditorView extends View {
       if (verdict !== "accept") return;
       this.seen = [...this.seen.slice(-31), m.req];
       this.register();
+      const at = parseAt(m.at);
       const r = handleOpen(
         this.routing,
-        { req: m.req, file: m.file, on: m.on },
-        { dirty: this.doc ? isDirty(this.doc) : false },
+        { req: m.req, file: m.file, on: m.on, ...(at ? { at } : {}) },
+        {
+          dirty: this.doc ? isDirty(this.doc) : false,
+          file: this.loading?.path ?? this.doc?.path ?? null,
+          on: this.loading ? this.loading.on : (this.doc?.machine ?? null),
+        },
       );
       await this.apply(r, cx);
       return;
@@ -610,10 +655,11 @@ export abstract class EditorView extends View {
   private async apply(r: { state: Routing; effects: Effect[] }, cx: Context | AsyncContext) {
     this.routing = r.state;
     for (const e of r.effects) {
-      if (e.type === "open") await this.openFile(e.file, e.on, cx as AsyncContext);
+      if (e.type === "open") await this.openFile(e.file, e.on, cx as AsyncContext, e.at ?? null);
       else if (e.type === "saveThenOpen") {
-        if (await this.save(cx)) await this.openFile(e.file, e.on, cx as AsyncContext);
-      } else if (e.type === "closeDialog") closeOverlay(e.overlay);
+        if (await this.save(cx)) await this.openFile(e.file, e.on, cx as AsyncContext, e.at ?? null);
+      } else if (e.type === "jump") this.jumpTo(e.at);
+      else if (e.type === "closeDialog") closeOverlay(e.overlay);
       else if (e.type === "focusEditor") (this.code as { focus?: () => void } | null)?.focus?.();
       else if (e.type === "openDialog") {
         const overlay = openOverlay({
