@@ -62,9 +62,20 @@ function completeLines(stdout: string): string[] {
 /** Herdr's exec keeps this much output and still reports exit 0. */
 export const OUTPUT_CAP = 8 * 1024 * 1024;
 
+/** UTF-8 bytes of `s`, counted only when it could reach `cap` (a UTF-16 unit is at most 3 bytes). */
+function reaches(s: string, cap: number): boolean {
+  if (s.length * 3 < cap) return false;
+  let bytes = 0;
+  for (let i = 0; i < s.length && bytes < cap; i++) {
+    const c = s.charCodeAt(i);
+    bytes += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c <= 0xdfff ? 2 : 3; // a surrogate pair is 4
+  }
+  return bytes >= cap;
+}
+
 /** The output was cut: it ends mid-line, or it is as long as the cap (a cut exactly at a line end). */
 export const cut = (stdout: string): boolean =>
-  stdout.length >= OUTPUT_CAP || (stdout !== "" && !stdout.endsWith("\n"));
+  (stdout !== "" && !stdout.endsWith("\n")) || reaches(stdout, OUTPUT_CAP);
 
 const show = (line: string) => line.trim().slice(0, LINE_SHOW);
 const stripCr = (s: string) => (s.endsWith("\r") ? s.slice(0, -1) : s);

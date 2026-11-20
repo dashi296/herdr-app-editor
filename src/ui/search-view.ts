@@ -86,6 +86,7 @@ export class SearchView extends View {
     if (!this.git) return;
     const q = this.input?.value() ?? "";
     this.wanted = q;
+    this.due = null; // every new text waits its own delay
     if (q.length < MIN_QUERY) {
       this.state = { kind: "hint", text: HINT };
       this.at = 0;

@@ -159,6 +159,27 @@ describe("searching", () => {
     expect(searches().map((c) => c.args.at(-1))).toEqual(["fo", "foo"]);
   });
 
+  test("text retyped during a search is searched once, after its own delay", async () => {
+    const first = deferred<ExecResult>();
+    let n = 0;
+    answer = (_cmd, args) =>
+      n++ === 0 ? first.promise : { code: 0, stdout: `x.ts\x001\x001\x00${args.at(-1)}\n`, stderr: "" };
+    await start();
+    await type("fo"); // running
+    await type("foo"); // its delay passed while "fo" runs
+    await type("f");
+    const wait = deferred<void>();
+    cx.sleep = () => wait.promise;
+    input().type("foo", cx); // typed again: a new delay starts
+    await settle();
+    first.resolve({ code: 0, stdout: "", stderr: "" });
+    await settle();
+    expect(searches().map((c) => c.args.at(-1))).toEqual(["fo"]);
+    wait.resolve();
+    await settle();
+    expect(searches().map((c) => c.args.at(-1))).toEqual(["fo", "foo"]);
+  });
+
   test("exit 1 with no output shows No matches.", async () => {
     answer = () => ({ code: 1, stdout: "", stderr: "" });
     const v = await start();

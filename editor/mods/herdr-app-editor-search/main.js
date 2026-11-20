@@ -41,8 +41,18 @@ function completeLines(stdout) {
 `);
 }
 var OUTPUT_CAP = 8 * 1024 * 1024;
-var cut = (stdout) => stdout.length >= OUTPUT_CAP || stdout !== "" && !stdout.endsWith(`
-`);
+function reaches(s, cap) {
+  if (s.length * 3 < cap)
+    return false;
+  let bytes = 0;
+  for (let i = 0;i < s.length && bytes < cap; i++) {
+    const c = s.charCodeAt(i);
+    bytes += c < 128 ? 1 : c < 2048 ? 2 : c >= 55296 && c <= 57343 ? 2 : 3;
+  }
+  return bytes >= cap;
+}
+var cut = (stdout) => stdout !== "" && !stdout.endsWith(`
+`) || reaches(stdout, OUTPUT_CAP);
 var show = (line) => line.trim().slice(0, LINE_SHOW);
 var stripCr = (s) => s.endsWith("\r") ? s.slice(0, -1) : s;
 function collect(stdout, read) {
@@ -230,6 +240,7 @@ class SearchView extends View {
       return;
     const q = this.input?.value() ?? "";
     this.wanted = q;
+    this.due = null;
     if (q.length < MIN_QUERY) {
       this.state = { kind: "hint", text: HINT };
       this.at = 0;
