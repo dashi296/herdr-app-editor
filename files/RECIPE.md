@@ -1,6 +1,6 @@
 # Herdr Editor Files
 
-Herdr's Files panel, changed so that clicking a file opens it in [Herdr Editor](../editor/RECIPE.md), an editable pane with syntax highlighting, line numbers and cmd-s to save. Without Herdr Editor installed, a click shows the same read-only preview as Herdr's own Files panel. This is a piece you add to your layout, not a whole window: it takes the place of the Files panel in the layout you already use.
+Herdr's Files panel, changed so that clicking a file opens it in [Herdr Editor](../editor/RECIPE.md), an editable pane with syntax highlighting, line numbers and cmd-s to save. Without Herdr Editor installed, a click shows a read-only preview in the panel, as Herdr's own Files panel does. This is a piece you add to your layout, not a whole window: it takes the place of the Files panel in the layout you already use.
 
 ![Herdr Editor Files](preview.png)
 
