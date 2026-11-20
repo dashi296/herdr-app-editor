@@ -37,9 +37,9 @@ pane とクリックが必要な項目（ファイル検索で開く、保存、
 
 | 指摘 | 対応 |
 |---|---|
-| 複製した layout の名前を決める手順がない | files RECIPE: 名前を聞き、`main-editor` を提案する |
+| 複製した layout の名前を決める手順がない | files RECIPE: 名前を聞き、`<layout>-editor` を提案する |
 | Files ブロックの見つけ方が書かれていない。stack の `"active": "files"` を変えてはいけないことも書かれていない | files RECIPE: `content` が `{ "mod": "files" }` のブロックを探す（`main` では `panel-body` の中の `id: "files"`）。変えるのは `content` だけ |
-| `main` では Files の列が最初は隠れている | files RECIPE: ヘッダーの Files ボタンで表示すると書いた |
+| `main` では Files を含む右側のパネルが最初は隠れている | files RECIPE: タブバーの Files ボタンで表示すると書いた |
 | `layout.clone` が JSON のキーを並べ替えるので、テキストの差分が読めない | files RECIPE: 比べるときは JSON を解析してから |
 | 複製すると layout が切り替わり、以後の `main` の変更が入らない。これは README にしか書かれていない | files RECIPE: 事前に人へ伝える、と書いた |
 | editor の Done when の「In a layout other than `main`」の意図が分からない | 「In the person's layout」に直した |
@@ -52,3 +52,11 @@ pane とクリックが必要な項目（ファイル検索で開く、保存、
 - **`herdr-app check` で Files の mod の `init()` が `git` と `sh` を実行する。** `checking()` での抑止がない。Herdr の `files` mod から引き継いだ動きで、読み取りだけなので、そのままにした。
 - **名前が重なったときの指示が食い違う。** AGENTS.md は名前を変えて入れるよう書いているが、RECIPE は名前を変えずに `src/core/names.ts` を直してビルドし直すよう書いている。RECIPE のほうが具体的なので、そのままにした。
 - **Linux / Windows。** この Mac では確かめられない。
+
+## レビューでの修正（PR #32）
+
+Claude と Codex のレビューを受けて、次を直した。
+
+- アクセスの説明を、実装に合わせて書き直した（`sh` / PowerShell での一覧、`git` での状態の取得、フォルダの監視、shared への記録、別のマシンでの実行）。files RECIPE では Watch out の先頭に移した。
+- 複製のコマンドを `main` 固定から、使っている layout の名前を入れる形にした。使っている layout は `herdr-app status` の `layout` で分かる、と書いた。
+- Files ボタンの場所を「ヘッダー」から「タブバーの右」に直した。
