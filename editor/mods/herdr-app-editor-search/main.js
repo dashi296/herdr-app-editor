@@ -47,7 +47,15 @@ function reaches(s, cap) {
   let bytes = 0;
   for (let i = 0;i < s.length && bytes < cap; i++) {
     const c = s.charCodeAt(i);
-    bytes += c < 128 ? 1 : c < 2048 ? 2 : c >= 55296 && c <= 57343 ? 2 : 3;
+    if (c < 128)
+      bytes += 1;
+    else if (c < 2048)
+      bytes += 2;
+    else if (c >= 55296 && c <= 56319 && (s.charCodeAt(i + 1) & 64512) === 56320) {
+      bytes += 4;
+      i++;
+    } else
+      bytes += 3;
   }
   return bytes >= cap;
 }

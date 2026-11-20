@@ -68,7 +68,12 @@ function reaches(s: string, cap: number): boolean {
   let bytes = 0;
   for (let i = 0; i < s.length && bytes < cap; i++) {
     const c = s.charCodeAt(i);
-    bytes += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c <= 0xdfff ? 2 : 3; // a surrogate pair is 4
+    if (c < 0x80) bytes += 1;
+    else if (c < 0x800) bytes += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      bytes += 4; // a surrogate pair is one 4-byte character
+      i++;
+    } else bytes += 3; // a lone surrogate is written as U+FFFD
   }
   return bytes >= cap;
 }

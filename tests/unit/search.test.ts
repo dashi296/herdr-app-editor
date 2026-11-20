@@ -95,6 +95,10 @@ test("cut tells whether the output ended mid-line", () => {
   // The cap counts bytes: 3-byte characters reach it with a third as many characters.
   expect(S.cut("あ".repeat(Math.ceil(S.OUTPUT_CAP / 3)) + "\n")).toBe(true);
   expect(S.cut("あ".repeat(1000) + "\n")).toBe(false);
+  // A lone surrogate is written as U+FFFD (3 bytes); a pair is one 4-byte character.
+  expect(S.cut("\ud800".repeat(Math.ceil((S.OUTPUT_CAP - 1) / 3)) + "\n")).toBe(true);
+  expect(S.cut("😀".repeat(S.OUTPUT_CAP / 4 - 1) + "abc\n")).toBe(true);
+  expect(S.cut("😀".repeat(S.OUTPUT_CAP / 4 - 1) + "ab\n")).toBe(false);
 });
 test("hits are capped at HIT_LIMIT", () => {
   const out = Array.from({ length: S.HIT_LIMIT + 5 }, (_, i) => `f.ts\x00${i + 1}\x001\x00foo\n`).join("");
