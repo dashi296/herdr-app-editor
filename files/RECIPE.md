@@ -8,7 +8,7 @@ Herdr's Files panel, changed so that clicking a file opens it in [Herdr Editor](
 
 - The same panel as Herdr's Files: a 42 px header with the folder name, then the tree with the same 28 px rows, 18 px indentation per level, 12 px chevrons, 14 px folder and file icons and git marks (`A` in `theme().ansi2`, `D` and `U` in `theme().ansi1`, others in `theme().blocked`).
 - With Herdr Editor installed, a clicked file opens in an editor pane to the right of the focused pane, not inside the panel.
-- Without it, the clicked file's read-only preview fills the panel, as in Herdr's Files.
+- Without it, the clicked file's read-only preview fills the panel, as in Herdr's Files. Its text is in the terminal font at the terminal's size (`font_size`); Herdr 0.1.16's own Files shows it at 12 px.
 
 ## How it behaves
 
@@ -19,7 +19,7 @@ Herdr's Files panel, changed so that clicking a file opens it in [Herdr Editor](
 
 ## Built from
 
-- `mods/herdr-app-editor-files` (`place: "none"`): a fork of Herdr's `files` mod (herdrdev/herdr-app `defaults/mods/files/main.js`, `5216e6f`), Apache-2.0, with Lucide icons under ISC. The changes are marked `herdr-app-editor:` in the repository's `src/entries/editor-files.js` and listed at the top of `main.js`: the click handler, the icon paths (`mods/herdr-app-editor-files/*.svg`), following a terminal while an editor is focused, cancelling the folder watch, and the fallback to the preview.
+- `mods/herdr-app-editor-files` (`place: "none"`): a fork of Herdr's `files` mod (herdrdev/herdr-app `defaults/mods/files/main.js`, `317e673`), Apache-2.0, with Lucide icons under ISC. The changes are marked `herdr-app-editor:` in the repository's `src/entries/editor-files.js` and listed at the top of `main.js`: the click handler, the icon paths (`mods/herdr-app-editor-files/*.svg`), following a terminal while an editor is focused, cancelling the folder watch, and the fallback to the preview.
 - It opens files with `run("pane.focus", { pane })` followed by `run("herdr-app-editor.open:<json>")`. A new pane comes from `pane.split { pane, direction: "right", mod: "herdr-app-editor", props: { key, file, on } }`; the panel finds the new pane by comparing `panes()` before and after, and records `{ key → pane, tab, lastFocus }` under `shared("herdr-app-editor").registry`.
 - It reads files with `readTextFile` and folders with `exec` (`git` and `sh`), and watches with `watchFolder`, like Herdr's Files.
 
