@@ -100,7 +100,7 @@ test("a relative path is refused: its link would point inside the images folder"
   await expect(store.expose("-s.png", "k1")).rejects.toThrow("not an absolute path");
 });
 
-test("a second store for the same pane leaves the first one's fresh link, and removes it once it is old", async () => {
+test("a second store for the same pane leaves the first one's fresh link, and removes links named a minute ago or not by this code", async () => {
   const a = join(outside, "a.png");
   await writeFile(a, "a");
   const shown = await new HerdrImageStore().expose(a, "k1");

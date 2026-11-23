@@ -4,12 +4,6 @@ import { imageDir } from "../../core/draft/paths";
 import { NS } from "../../core/names";
 import type { ImageStore } from "../../ports/image-store";
 
-/**
- * Images are exposed under appHome()/data/<ns>/images/<pane key>/ (spike S13).
- * macOS and Linux: a symlink, so nothing is copied and the file may be anywhere. Windows has no
- * `ln`: the file is copied with the host fs, which reads only under the home folder and has not
- * been run there yet. Old entries are removed with `rm`/fs.unlink by name, never through the link.
- */
 /** Links of other stores are left alone for this long. */
 export const FOREIGN_LINK_MAX_AGE_MS = 60_000;
 
@@ -19,6 +13,12 @@ function isStale(name: string, now: number): boolean {
   return !(now - at < FOREIGN_LINK_MAX_AGE_MS);
 }
 
+/**
+ * Images are exposed under appHome()/data/<ns>/images/<pane key>/ (spike S13).
+ * macOS and Linux: a symlink, so nothing is copied and the file may be anywhere. Windows has no
+ * `ln`: the file is copied with the host fs, which reads only under the home folder and has not
+ * been run there yet. Old entries are removed with `rm`/fs.unlink by name, never through the link.
+ */
 export class HerdrImageStore implements ImageStore {
   /** One call at a time: an expose still linking when the next one starts would leave its link behind. */
   private queue: Promise<unknown> = Promise.resolve();
