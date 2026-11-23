@@ -194,22 +194,21 @@ class HerdrImageStore {
   release(paneKey) {
     const mine = [...this.made.get(paneKey) ?? []];
     let now = Promise.resolve();
-    if (mine.length > 0 && window2()?.platform !== "windows") {
-      try {
+    try {
+      if (mine.length > 0 && window2()?.platform !== "windows") {
         const dir = `${appHome()}/${this.rel(paneKey)}`;
         now = exec2("rm", ["-f", "--", ...mine.map((n) => `${dir}/${n}`)], { timeout: 5000 }).catch(() => {});
-      } catch {}
-    }
-    return Promise.all([now, this.queued(() => this.remove(paneKey, true))]).then(() => {});
+      }
+    } catch {}
+    return Promise.all([now, this.queued(() => this.remove(paneKey))]).then(() => {});
   }
-  async remove(paneKey, dropDir = false) {
+  async remove(paneKey) {
     try {
       const dir = `${appHome()}/${this.rel(paneKey)}`;
       if (!await fs.exists(dir))
         return;
       const mine = this.made.get(paneKey), now = Date.now();
-      const all = await fs.readdir(dir);
-      const names = all.filter((n) => mine?.has(n) || isStale(n, now));
+      const names = (await fs.readdir(dir)).filter((n) => mine?.has(n) || isStale(n, now));
       this.made.delete(paneKey);
       if (names.length > 0) {
         if (window2()?.platform === "windows")
@@ -218,8 +217,6 @@ class HerdrImageStore {
         else
           await exec2("rm", ["-f", "--", ...names.map((n) => `${dir}/${n}`)], { timeout: 5000 });
       }
-      if (dropDir && all.length === names.length)
-        await fs.rmdir(dir);
     } catch {}
   }
 }

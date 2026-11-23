@@ -1,11 +1,12 @@
 // HerdrImageStore against a real temporary folder standing in for appHome(), with exec running
 // the real `test`, `ln` and `rm`.
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { lstat, mkdtemp, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NS } from "../../src/core/names";
-import { host, install, reset } from "./host";
+import { host, install, reset, until } from "./host";
 
 install();
 const { HerdrImageStore, FOREIGN_LINK_MAX_AGE_MS } = await import("../../src/adapters/herdr/image-store");
@@ -58,7 +59,7 @@ test("every expose uses a new path and removes the pane's earlier link, not the 
   expect(await Bun.file(a).text()).toBe("a");
 });
 
-test("panes do not remove each other's links, and release removes the pane's emptied folder", async () => {
+test("panes do not remove each other's links", async () => {
   const a = join(outside, "a.png");
   await writeFile(a, "a");
   const store = new HerdrImageStore();
@@ -66,7 +67,7 @@ test("panes do not remove each other's links, and release removes the pane's emp
   await store.expose(a, "k2");
   await store.release("k2");
   expect((await readdir(dir("k1"))).length).toBe(1);
-  expect(await readdir(join(home, "data", NS, "images"))).toEqual(["k1"]);
+  expect(await readdir(dir("k2"))).toEqual([]);
 });
 
 test("release starts removing its own links before anything else is awaited (at quit only new exec calls finish)", async () => {
@@ -83,7 +84,28 @@ test("release starts removing its own links before anything else is awaited (at 
   const done = store.release("k1");
   expect(calls).toEqual([["rm", "-f", "--", join(home, shown)]]);
   await done;
-  expect(await readdir(join(home, "data", NS, "images"))).toEqual([]);
+  expect(await readdir(dir("k1"))).toEqual([]);
+});
+
+test("a copy of the mod closing for the same pane does not break the other copy's expose", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const kept = new HerdrImageStore(),
+    dropped = new HerdrImageStore();
+  // Hold the kept copy's existence check open, so the dropped copy closes in the middle of its expose.
+  let resume!: () => void;
+  const held = new Promise<void>((r) => (resume = r));
+  const real = host.exec;
+  host.exec = async (cmd, args, opts) => {
+    if (cmd === "test") await held;
+    return real(cmd, args, opts);
+  };
+  const exposing = kept.expose(a, "k1");
+  await until(() => existsSync(dir("k1")));
+  await dropped.release("k1");
+  resume();
+  const shown = await exposing;
+  expect(await readdir(dir("k1"))).toEqual([shown.split("/").pop()!]);
 });
 
 test("a missing file and a folder are rejected, and no link is left", async () => {

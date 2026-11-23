@@ -64,22 +64,22 @@ export class HerdrImageStore implements ImageStore {
   release(paneKey: string): Promise<void> {
     // At quit only exec calls started now are sure to finish (gpui-kit View.close): this store's own
     // links are removed at once, before waiting for the queue or the fs. The queued pass after it
-    // removes a link an expose still running makes, old links of other stores, and the empty folder.
+    // removes a link an expose still running makes, and old links of other stores.
+    // The folder stays: another copy of the mod for the same pane may be about to link into it.
     const mine = [...(this.made.get(paneKey) ?? [])];
     let now: Promise<unknown> = Promise.resolve();
-    if (mine.length > 0 && window()?.platform !== "windows") {
-      try {
+    try {
+      if (mine.length > 0 && window()?.platform !== "windows") {
         const dir = `${appHome()}/${this.rel(paneKey)}`;
         now = exec("rm", ["-f", "--", ...mine.map((n) => `${dir}/${n}`)], { timeout: 5000 }).catch(() => {});
-      } catch {
-        /* the queued pass tries again */
       }
+    } catch {
+      /* the queued pass tries again */
     }
-    return Promise.all([now, this.queued(() => this.remove(paneKey, true))]).then(() => {});
+    return Promise.all([now, this.queued(() => this.remove(paneKey))]).then(() => {});
   }
 
-  /** `dropDir`: also remove the folder once it is empty (closing; an expose fills it again at once). */
-  private async remove(paneKey: string, dropDir = false): Promise<void> {
+  private async remove(paneKey: string): Promise<void> {
     try {
       const dir = `${appHome()}/${this.rel(paneKey)}`;
       if (!(await fs.exists(dir))) return;
@@ -88,15 +88,13 @@ export class HerdrImageStore implements ImageStore {
       // links go, and others once they are old (left by an earlier run).
       const mine = this.made.get(paneKey),
         now = Date.now();
-      const all = await fs.readdir(dir);
-      const names = all.filter((n) => mine?.has(n) || isStale(n, now));
+      const names = (await fs.readdir(dir)).filter((n) => mine?.has(n) || isStale(n, now));
       this.made.delete(paneKey);
       if (names.length > 0) {
         if (window()?.platform === "windows") for (const n of names) await fs.unlink(`${dir}/${n}`);
         // rm removes the link itself; the host fs may refuse a path that resolves outside the app home.
         else await exec("rm", ["-f", "--", ...names.map((n) => `${dir}/${n}`)], { timeout: 5000 });
       }
-      if (dropDir && all.length === names.length) await fs.rmdir(dir);
     } catch {
       /* best effort: a leftover is a few bytes (on Windows, a copy of the picture) */
     }
