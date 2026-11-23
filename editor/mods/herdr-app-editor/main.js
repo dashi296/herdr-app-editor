@@ -204,7 +204,7 @@ class HerdrImageStore {
         now = exec2("rm", ["-f", "--", ...paths], { timeout: 5000 }).catch(() => {});
         const late = paths.filter((p) => this.linking.has(p));
         if (late.length > 0)
-          exec2("sh", ["-c", 'sleep 1; rm -f -- "$@"', "sh", ...late], { timeout: 5000 }).catch(() => {});
+          exec2("sh", ["-c", 'for i in 1 2 3 4 5 6; do sleep 1; rm -f -- "$@"; done', "sh", ...late], { timeout: 1e4 }).catch(() => {});
       }
     } catch {}
     return Promise.all([now, this.queued(() => this.remove(paneKey))]).then(() => {});

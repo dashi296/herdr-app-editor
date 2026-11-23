@@ -87,49 +87,46 @@ test("release starts removing its own links before anything else is awaited (at 
   expect(await readdir(dir("k1"))).toEqual([]);
 });
 
-test("closing while ln runs also starts a later rm of that link, which runs even if nothing else does", async () => {
+test("closing while ln runs also starts rm of that link once a second for longer than ln may take", async () => {
   const a = join(outside, "a.png");
   await writeFile(a, "a");
   const store = new HerdrImageStore();
   let resume!: () => void;
   const held = new Promise<void>((r) => (resume = r));
   const calls: string[][] = [];
-  let late: Promise<unknown> | null = null;
+  // After close, as at quit: nothing new runs, but the ln already running and the sh started by close finish.
+  let quit = false;
   const real = host.exec;
   host.exec = (cmd, args, opts) => {
+    if (quit) return Promise.resolve({ code: 0, stdout: "", stderr: "" });
     calls.push([cmd, ...args]);
     if (cmd === "ln") return held.then(() => real(cmd, args, opts));
-    const run = real(cmd, args, opts);
-    if (cmd === "sh") late = run;
-    return run;
+    return real(cmd, args, opts);
   };
-  const exposing = store.expose(a, "k1");
+  void store.expose(a, "k1").catch(() => {});
   await until(() => calls.some((c) => c[0] === "ln"));
   const link = calls.find((c) => c[0] === "ln")!.at(-1)!;
   calls.length = 0;
-  const releasing = store.release("k1");
+  void store.release("k1");
+  quit = true;
   expect(calls).toEqual([
     ["rm", "-f", "--", link],
-    ["sh", "-c", 'sleep 1; rm -f -- "$@"', "sh", link],
+    ["sh", "-c", 'for i in 1 2 3 4 5 6; do sleep 1; rm -f -- "$@"; done', "sh", link],
   ]);
-  // The ln finishes after the first rm; only the later rm is relied on here.
+  const exists = () =>
+    lstat(link).then(
+      () => true,
+      () => false,
+    );
+  // The ln takes longer than the first repeat.
+  await Bun.sleep(1500);
   resume();
-  await exposing;
-  expect(
-    await lstat(link).then(
-      () => true,
-      () => false,
-    ),
-  ).toBe(true);
-  await late;
-  expect(
-    await lstat(link).then(
-      () => true,
-      () => false,
-    ),
-  ).toBe(false);
-  await releasing;
-});
+  await until(() => false, 50);
+  for (let i = 0; i < 40 && !(await exists()); i++) await Bun.sleep(25);
+  expect(await exists()).toBe(true);
+  for (let i = 0; i < 60 && (await exists()); i++) await Bun.sleep(50);
+  expect(await exists()).toBe(false);
+}, 10_000);
 
 test("release with no ln running starts no later rm", async () => {
   const a = join(outside, "a.png");

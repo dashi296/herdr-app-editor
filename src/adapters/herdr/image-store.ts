@@ -72,7 +72,7 @@ export class HerdrImageStore implements ImageStore {
     // links are removed at once, before waiting for the queue or the fs. The queued pass after it
     // removes a link an expose still running makes, and old links of other stores.
     // An `ln` still running may finish after that rm, and at quit the queued pass may never run: a
-    // second rm, started now and run a second later by sh, removes such a link.
+    // second rm, started now, runs every second for 6 s (longer than ln's timeout) and removes such a link.
     // The folder stays: another copy of the mod for the same pane may be about to link into it.
     const mine = [...(this.made.get(paneKey) ?? [])];
     let now: Promise<unknown> = Promise.resolve();
@@ -84,7 +84,7 @@ export class HerdrImageStore implements ImageStore {
         const late = paths.filter((p) => this.linking.has(p));
         // Not waited for: close would otherwise take a second whenever an image is being linked.
         if (late.length > 0)
-          exec("sh", ["-c", 'sleep 1; rm -f -- "$@"', "sh", ...late], { timeout: 5000 }).catch(() => {});
+          exec("sh", ["-c", 'for i in 1 2 3 4 5 6; do sleep 1; rm -f -- "$@"; done', "sh", ...late], { timeout: 10_000 }).catch(() => {});
       }
     } catch {
       /* the queued pass tries again */
