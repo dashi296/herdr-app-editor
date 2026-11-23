@@ -184,6 +184,8 @@ export const host = {
   /** readTextFile serves these; every path asked for is recorded in reads. */
   files: new Map<string, string>(),
   reads: [] as string[],
+  /** Every path given to image(). Clear it before the render you check. */
+  images: [] as string[],
 };
 
 export function reset() {
@@ -207,6 +209,7 @@ export function reset() {
   host.checking = false;
   host.files = new Map();
   host.reads = [];
+  host.images = [];
   FakeEditorState.created = [];
   FakeInputState.created = [];
 }
@@ -227,7 +230,15 @@ function fakeWatch(): FakeWatch {
 }
 
 export function install() {
-  mock.module("gpui-kit", () => ({ View: class {}, div: element, svg: element }));
+  mock.module("gpui-kit", () => ({
+    View: class {},
+    div: element,
+    svg: element,
+    image: (path: string) => {
+      host.images.push(path);
+      return element();
+    },
+  }));
   mock.module("gpui-base", () => ({
     Editor: { new: element },
     EditorState: FakeEditorState,
