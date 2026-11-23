@@ -150,8 +150,15 @@ var MOD_OPEN = "herdr-app-editor-open";
 var SHARED_KEY = NS;
 
 // src/adapters/herdr/image-store.ts
+var FOREIGN_LINK_MAX_AGE_MS = 60000;
+function isStale(name, now) {
+  const at = parseInt(name.split("-")[0] ?? "", 36);
+  return !(now - at < FOREIGN_LINK_MAX_AGE_MS);
+}
+
 class HerdrImageStore {
   queue = Promise.resolve();
+  made = new Map;
   rel(paneKey) {
     return `data/${NS}/${imageDir(paneKey)}`;
   }
@@ -169,6 +176,8 @@ class HerdrImageStore {
       await this.remove(paneKey);
       await fs.mkdir(dir, { recursive: true });
       const name = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      const mine = this.made.get(paneKey) ?? new Set;
+      this.made.set(paneKey, mine.add(name));
       if (windows) {
         await fs.writeFile(`${dir}/${name}`, await fs.readFile(path));
       } else {
@@ -190,7 +199,9 @@ class HerdrImageStore {
       const dir = `${appHome()}/${this.rel(paneKey)}`;
       if (!await fs.exists(dir))
         return;
-      const names = await fs.readdir(dir);
+      const mine = this.made.get(paneKey), now = Date.now();
+      const names = (await fs.readdir(dir)).filter((n) => mine?.has(n) || isStale(n, now));
+      this.made.delete(paneKey);
       if (names.length === 0)
         return;
       if (window2()?.platform === "windows")

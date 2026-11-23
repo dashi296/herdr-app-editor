@@ -1,14 +1,14 @@
 // HerdrImageStore against a real temporary folder standing in for appHome(), with exec running
 // the real `test`, `ln` and `rm`.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { lstat, mkdtemp, readdir, readlink, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NS } from "../../src/core/names";
 import { host, install, reset } from "./host";
 
 install();
-const { HerdrImageStore } = await import("../../src/adapters/herdr/image-store");
+const { HerdrImageStore, FOREIGN_LINK_MAX_AGE_MS } = await import("../../src/adapters/herdr/image-store");
 
 let home: string, outside: string;
 const dir = (key: string) => join(home, "data", NS, "images", key);
@@ -98,6 +98,26 @@ test("a relative path is refused: its link would point inside the images folder"
   const store = new HerdrImageStore();
   await expect(store.expose("pictures/a.png", "k1")).rejects.toThrow("not an absolute path");
   await expect(store.expose("-s.png", "k1")).rejects.toThrow("not an absolute path");
+});
+
+test("a second store for the same pane leaves the first one's fresh link, and removes it once it is old", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const shown = await new HerdrImageStore().expose(a, "k1");
+  const other = new HerdrImageStore();
+  await other.release("k1"); // the dropped copy closes
+  expect(await readdir(dir("k1"))).toEqual([shown.split("/").pop()!]);
+
+  const second = await other.expose(a, "k1");
+  expect((await readdir(dir("k1"))).length).toBe(2);
+
+  // A link left by an earlier run: named a minute ago, or not named by this code at all.
+  const old = `${(Date.now() - FOREIGN_LINK_MAX_AGE_MS).toString(36)}-old`;
+  await symlink(a, join(dir("k1"), old));
+  await symlink(a, join(dir("k1"), "junk"));
+  await other.release("k1");
+  expect(await readdir(dir("k1"))).toEqual([shown.split("/").pop()!]);
+  expect(second).not.toBe(shown);
 });
 
 test("release of a pane that never showed an image does nothing", async () => {
