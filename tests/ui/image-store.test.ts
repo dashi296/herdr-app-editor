@@ -128,6 +128,29 @@ test("closing while ln runs also starts rm of that link once a second for longer
   expect(await exists()).toBe(false);
 }, 10_000);
 
+test("closing while the file is being checked makes no link at all", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  let resume!: () => void;
+  const held = new Promise<void>((r) => (resume = r));
+  const cmds: string[] = [];
+  const real = host.exec;
+  host.exec = (cmd, args, opts) => {
+    cmds.push(cmd);
+    if (cmd === "test") return held.then(() => real(cmd, args, opts));
+    return real(cmd, args, opts);
+  };
+  const exposing = store.expose(a, "k1");
+  await until(() => cmds.includes("test"));
+  const releasing = store.release("k1");
+  resume();
+  await expect(exposing).rejects.toThrow("the pane was closed");
+  await releasing;
+  expect(cmds).not.toContain("ln");
+  expect(await readdir(dir("k1"))).toEqual([]);
+});
+
 test("release with no ln running starts no later rm", async () => {
   const a = join(outside, "a.png");
   await writeFile(a, "a");

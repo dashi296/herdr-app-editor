@@ -26,6 +26,8 @@ export class HerdrImageStore implements ImageStore {
   private made = new Map<string, Set<string>>();
   /** Full paths whose `ln` has started and not finished. */
   private linking = new Set<string>();
+  /** How many times each pane key has been released: an expose that sees it change makes no link. */
+  private releases = new Map<string, number>();
 
   private rel(paneKey: string): string {
     return `data/${NS}/${imageDir(paneKey)}`;
@@ -38,6 +40,7 @@ export class HerdrImageStore implements ImageStore {
   }
 
   expose(path: string, paneKey: string): Promise<string> {
+    const released = this.releases.get(paneKey) ?? 0;
     return this.queued(async () => {
       const rel = this.rel(paneKey),
         dir = `${appHome()}/${rel}`;
@@ -56,6 +59,8 @@ export class HerdrImageStore implements ImageStore {
         // ln -s succeeds for a missing target and image() then shows nothing, so check first.
         const there = await exec("test", ["-f", path, "-a", "-r", path], { timeout: 5000 });
         if (there.code !== 0) throw new Error("the file is missing or unreadable");
+        // Closed meanwhile: its link would be made after the rm in release, and at quit nothing removes it.
+        if ((this.releases.get(paneKey) ?? 0) !== released) throw new Error("the pane was closed");
         const link = `${dir}/${name}`;
         this.linking.add(link);
         const made = await exec("ln", ["-s", "--", path, link], { timeout: 5000 }).finally(() =>
@@ -74,6 +79,7 @@ export class HerdrImageStore implements ImageStore {
     // An `ln` still running may finish after that rm, and at quit the queued pass may never run: a
     // second rm, started now, runs every second for 6 s (longer than ln's timeout) and removes such a link.
     // The folder stays: another copy of the mod for the same pane may be about to link into it.
+    this.releases.set(paneKey, (this.releases.get(paneKey) ?? 0) + 1);
     const mine = [...(this.made.get(paneKey) ?? [])];
     let now: Promise<unknown> = Promise.resolve();
     try {

@@ -160,6 +160,7 @@ class HerdrImageStore {
   queue = Promise.resolve();
   made = new Map;
   linking = new Set;
+  releases = new Map;
   rel(paneKey) {
     return `data/${NS}/${imageDir(paneKey)}`;
   }
@@ -169,6 +170,7 @@ class HerdrImageStore {
     return run;
   }
   expose(path, paneKey) {
+    const released = this.releases.get(paneKey) ?? 0;
     return this.queued(async () => {
       const rel = this.rel(paneKey), dir = `${appHome()}/${rel}`;
       const windows = window2()?.platform === "windows";
@@ -185,6 +187,8 @@ class HerdrImageStore {
         const there = await exec2("test", ["-f", path, "-a", "-r", path], { timeout: 5000 });
         if (there.code !== 0)
           throw new Error("the file is missing or unreadable");
+        if ((this.releases.get(paneKey) ?? 0) !== released)
+          throw new Error("the pane was closed");
         const link = `${dir}/${name}`;
         this.linking.add(link);
         const made = await exec2("ln", ["-s", "--", path, link], { timeout: 5000 }).finally(() => this.linking.delete(link));
@@ -195,6 +199,7 @@ class HerdrImageStore {
     });
   }
   release(paneKey) {
+    this.releases.set(paneKey, (this.releases.get(paneKey) ?? 0) + 1);
     const mine = [...this.made.get(paneKey) ?? []];
     let now = Promise.resolve();
     try {
