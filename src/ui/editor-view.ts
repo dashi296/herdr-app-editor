@@ -102,8 +102,8 @@ type Screen =
 const POLL_LOCAL_MS = 3000,
   POLL_REMOTE_MS = 10000;
 
-const IMAGE_REPAINT_MS = 250,
-  IMAGE_REPAINTS = 12;
+/** Waits between repaints after a picture is opened: 3 s of quick ones, then one a second up to 30 s for a slow decode. */
+const IMAGE_REPAINT_WAITS: readonly number[] = [...Array<number>(12).fill(250), ...Array<number>(27).fill(1000)];
 
 /** master-only host APIs, looked up at run time so the mod still loads on 0.1.15 (spike Step 0). */
 /**
@@ -390,8 +390,9 @@ export abstract class EditorView extends View {
     // image() loads in the background and a still pane is not repainted when it is done: on the
     // device the picture was still missing 3 s after opening (S13). Repaint for the first seconds.
     cx.spawn(async (cx) => {
-      for (let i = 0; i < IMAGE_REPAINTS && this.screen === shown; i++) {
-        await cx.sleep(IMAGE_REPAINT_MS);
+      for (const wait of IMAGE_REPAINT_WAITS) {
+        await cx.sleep(wait);
+        if (this.screen !== shown) return;
         cx.notify();
       }
     });

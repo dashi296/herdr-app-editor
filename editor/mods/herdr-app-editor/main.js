@@ -151,28 +151,41 @@ var SHARED_KEY = NS;
 
 // src/adapters/herdr/image-store.ts
 class HerdrImageStore {
-  count = 0;
+  queue = Promise.resolve();
   rel(paneKey) {
     return `data/${NS}/${imageDir(paneKey)}`;
   }
-  async expose(path, paneKey) {
-    const rel = this.rel(paneKey), dir = `${appHome()}/${rel}`;
-    await this.release(paneKey);
-    await fs.mkdir(dir, { recursive: true });
-    const name = `${Date.now().toString(36)}-${this.count++}`;
-    if (window2()?.platform === "windows") {
-      await fs.writeFile(`${dir}/${name}`, await fs.readFile(path));
-    } else {
-      const there = await exec2("test", ["-f", path, "-a", "-r", path], { timeout: 5000 });
-      if (there.code !== 0)
-        throw new Error("the file is missing or unreadable");
-      const made = await exec2("ln", ["-s", "--", path, `${dir}/${name}`], { timeout: 5000 });
-      if (made.code !== 0)
-        throw new Error(made.stderr.trim() || `ln exited with ${made.code}`);
-    }
-    return `${rel}/${name}`;
+  queued(fn) {
+    const run = this.queue.then(fn, fn);
+    this.queue = run.catch(() => {});
+    return run;
   }
-  async release(paneKey) {
+  expose(path, paneKey) {
+    return this.queued(async () => {
+      const rel = this.rel(paneKey), dir = `${appHome()}/${rel}`;
+      const windows = window2()?.platform === "windows";
+      if (!windows && !path.startsWith("/"))
+        throw new Error("not an absolute path");
+      await this.remove(paneKey);
+      await fs.mkdir(dir, { recursive: true });
+      const name = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      if (windows) {
+        await fs.writeFile(`${dir}/${name}`, await fs.readFile(path));
+      } else {
+        const there = await exec2("test", ["-f", path, "-a", "-r", path], { timeout: 5000 });
+        if (there.code !== 0)
+          throw new Error("the file is missing or unreadable");
+        const made = await exec2("ln", ["-s", "--", path, `${dir}/${name}`], { timeout: 5000 });
+        if (made.code !== 0)
+          throw new Error(made.stderr.trim() || `ln exited with ${made.code}`);
+      }
+      return `${rel}/${name}`;
+    });
+  }
+  release(paneKey) {
+    return this.queued(() => this.remove(paneKey));
+  }
+  async remove(paneKey) {
     try {
       const dir = `${appHome()}/${this.rel(paneKey)}`;
       if (!await fs.exists(dir))
@@ -1025,8 +1038,7 @@ async function sweepPaneStates(store, selfKey, now) {
 // src/ui/editor-view.ts
 var POLL_LOCAL_MS = 3000;
 var POLL_REMOTE_MS = 1e4;
-var IMAGE_REPAINT_MS = 250;
-var IMAGE_REPAINTS = 12;
+var IMAGE_REPAINT_WAITS = [...Array(12).fill(250), ...Array(27).fill(1000)];
 var SWEEP_DELAY_MS = 60000;
 var sweep = "waiting";
 var isChecking = () => herdr.checking?.() ?? false;
@@ -1259,8 +1271,10 @@ class EditorView extends View {
     const shown = { kind: "image", path, src };
     this.screen = shown;
     cx.spawn(async (cx2) => {
-      for (let i = 0;i < IMAGE_REPAINTS && this.screen === shown; i++) {
-        await cx2.sleep(IMAGE_REPAINT_MS);
+      for (const wait of IMAGE_REPAINT_WAITS) {
+        await cx2.sleep(wait);
+        if (this.screen !== shown)
+          return;
         cx2.notify();
       }
     });

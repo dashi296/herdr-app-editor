@@ -515,22 +515,34 @@ describe("images (#42)", () => {
     expect(host.texts).toEqual(["pic.PNG", "/p/pic.PNG"]);
   });
 
-  test("the pane is repainted while the host loads the picture, and no longer once another file is open", async () => {
+  test("the pane is repainted while the host loads the picture: quickly for 3 s, then every second up to 30 s", async () => {
     const v = await opened();
     images.present.add("/p/pic.png");
     let notified = 0;
     cx.notify = () => notified++;
     await v.openFile("/p/pic.png", null, cx);
-    await until(() => cx.sleeps.length === 12);
+    notified = 0;
+    // Without the one sleep init starts for the pane-state sweep.
+    const waits = () => cx.sleeps.filter((ms) => ms !== 60_000);
+    await until(() => waits().length === 39);
     await settle();
-    expect(notified).toBeGreaterThanOrEqual(12);
+    expect(waits().length).toBe(39);
+    expect(waits().slice(0, 12)).toEqual(Array(12).fill(250));
+    expect(waits().reduce((a, b) => a + b, 0)).toBe(30_000);
+    expect(notified).toBe(39);
+  });
 
-    cx.sleeps = [];
+  test("the repaints stop once another file is open", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
     await v.openFile("/p/pic.png", null, cx);
     await v.openFile("/p/a.txt", null, cx);
-    await settle();
-    await settle();
-    expect(cx.sleeps.length).toBeLessThan(12);
+    const before = cx.sleeps.length;
+    let notified = 0;
+    cx.notify = () => notified++;
+    await until(() => false, 60);
+    expect(cx.sleeps.length - before).toBeLessThanOrEqual(1);
+    expect(notified).toBe(0);
   });
 
   test("the pane remembers the image and shows it again after a restart", async () => {

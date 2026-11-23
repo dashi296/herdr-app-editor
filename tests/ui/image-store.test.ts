@@ -76,6 +76,30 @@ test("a missing file and a folder are rejected, and no link is left", async () =
   expect(await readdir(dir("k1"))).toEqual([]);
 });
 
+test("exposes started together run one after another: only the last link is left", async () => {
+  const a = join(outside, "a.png"),
+    b = join(outside, "b.png");
+  await writeFile(a, "a");
+  await writeFile(b, "b");
+  const store = new HerdrImageStore();
+  const [, , last] = await Promise.all([store.expose(a, "k1"), store.expose(b, "k1"), store.expose(a, "k1")]);
+  expect(await readdir(dir("k1"))).toEqual([last.split("/").pop()!]);
+});
+
+test("a failed expose does not block the next one", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  await expect(store.expose(join(outside, "nope.png"), "k1")).rejects.toThrow();
+  expect((await store.expose(a, "k1")).startsWith(`data/${NS}/images/k1/`)).toBe(true);
+});
+
+test("a relative path is refused: its link would point inside the images folder", async () => {
+  const store = new HerdrImageStore();
+  await expect(store.expose("pictures/a.png", "k1")).rejects.toThrow("not an absolute path");
+  await expect(store.expose("-s.png", "k1")).rejects.toThrow("not an absolute path");
+});
+
 test("release of a pane that never showed an image does nothing", async () => {
   await new HerdrImageStore().release("never");
 });
