@@ -84,7 +84,9 @@ export class HerdrImageStore implements ImageStore {
         const late = paths.filter((p) => this.linking.has(p));
         // Not waited for: close would otherwise take a second whenever an image is being linked.
         if (late.length > 0)
-          exec("sh", ["-c", 'for i in 1 2 3 4 5 6; do sleep 1; rm -f -- "$@"; done', "sh", ...late], { timeout: 10_000 }).catch(() => {});
+          exec("sh", ["-c", 'for i in 1 2 3 4 5 6; do sleep 1; rm -f -- "$@"; done', "sh", ...late], {
+            timeout: 10_000,
+          }).catch(() => {});
       }
     } catch {
       /* the queued pass tries again */
