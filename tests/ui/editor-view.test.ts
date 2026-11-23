@@ -6,8 +6,20 @@ import type { Doc } from "../../src/core/document/document";
 import { createRegistry } from "../../src/core/extensions/registry";
 import { MOD_EDITOR, MOD_OPEN, SHARED_KEY } from "../../src/core/names";
 import type { FileStore, FolderWatch } from "../../src/ports/file-store";
+import type { ImageStore } from "../../src/ports/image-store";
 import { SlotStore, type SlotIO } from "../../src/ports/slot-store";
-import { deferred, FakeEditorState, host, install, makeCx, reset, settle, type Deferred, type FakeCx } from "./host";
+import {
+  deferred,
+  FakeEditorState,
+  host,
+  install,
+  makeCx,
+  reset,
+  settle,
+  until,
+  type Deferred,
+  type FakeCx,
+} from "./host";
 
 install();
 const { EditorView } = await import("../../src/ui/editor-view");
@@ -83,10 +95,31 @@ class FakeFiles implements FileStore {
   }
 }
 
+/** Exposes every file in `present` under images/<key>/<n>, a new name each time. */
+class FakeImages implements ImageStore {
+  present = new Set<string>();
+  exposed: { path: string; key: string }[] = [];
+  released: string[] = [];
+  gate: Deferred<void> | null = null;
+  async expose(path: string, key: string) {
+    const gate = this.gate;
+    if (gate) {
+      this.gate = null;
+      await gate.promise;
+    }
+    if (!this.present.has(path)) throw new Error("the file is missing or unreadable");
+    this.exposed.push({ path, key });
+    return `images/${key}/${this.exposed.length}`;
+  }
+  async release(key: string) {
+    this.released.push(key);
+  }
+}
+
 /** The private members the tests drive and inspect. */
 interface Internals {
   doc: Doc | null;
-  screen: { kind: string; text?: string };
+  screen: { kind: string; text?: string; path?: string; src?: string };
   readonlyReason: string | null;
   extensionNotes: string[];
   draftOffer: { text: string } | null;
@@ -101,10 +134,10 @@ interface Internals {
   close(cx: FakeCx): Promise<void>;
 }
 
-let files: FakeFiles, io: MemoryIO, cx: FakeCx, extensions: Extension[];
+let files: FakeFiles, images: FakeImages, io: MemoryIO, cx: FakeCx, extensions: Extension[];
 
 function makeView(): Internals {
-  const deps = { files, store: new SlotStore(io), extensions: createRegistry(extensions) };
+  const deps = { files, images, store: new SlotStore(io), extensions: createRegistry(extensions) };
   class TestEditor extends EditorView {
     protected makeDeps() {
       return deps;
@@ -131,6 +164,7 @@ const hasDraft = (path: string) => [...io.files.keys()].some((k) => k.startsWith
 beforeEach(() => {
   reset();
   files = new FakeFiles();
+  images = new FakeImages();
   io = new MemoryIO();
   cx = makeCx();
   extensions = [];
@@ -456,6 +490,170 @@ describe("openFile", () => {
     await settle();
     expect(v.doc?.text).toBe("restored\n");
     expect(draftKeys().some((k) => k.startsWith(draftBase(null, "/p/a.txt", "gone")))).toBe(true);
+  });
+});
+
+describe("images (#42)", () => {
+  test("an image file is shown through the image store, without reading it as text", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.PNG");
+    let read = false;
+    files.read = async () => {
+      read = true;
+      return null;
+    };
+    await v.openFile("/p/pic.PNG", null, cx);
+    expect(v.screen).toEqual({ kind: "image", path: "/p/pic.PNG", src: "images/k1/1" });
+    expect(read).toBe(false);
+    expect(v.doc).toBeNull();
+    expect(code().released).toBe(true);
+
+    host.images = [];
+    host.texts = [];
+    v.render(cx);
+    expect(host.images).toEqual(["images/k1/1"]);
+    // Scaled down to fit both ways, never up (spike S13: only both max sizes keep it inside).
+    expect(host.imageStyles).toEqual(["max_w_full", "max_h_full"]);
+    // Centred in the pane, and clipped if the host draws it larger than the room it has.
+    expect(host.imageParentStyles).toEqual(["size_full", "flex", "items_center", "justify_center", "overflow_hidden"]);
+    expect(host.texts).toEqual(["pic.PNG", "/p/pic.PNG"]);
+  });
+
+  test("the pane is repainted while the host loads the picture: quickly for 3 s, then every second up to 30 s", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    let notified = 0;
+    cx.notify = () => notified++;
+    await v.openFile("/p/pic.png", null, cx);
+    notified = 0;
+    // Without the one sleep init starts for the pane-state sweep.
+    const waits = () => cx.sleeps.filter((ms) => ms !== 60_000);
+    await until(() => waits().length === 39);
+    await settle();
+    expect(waits().length).toBe(39);
+    expect(waits().slice(0, 12)).toEqual(Array(12).fill(250));
+    expect(waits().reduce((a, b) => a + b, 0)).toBe(30_000);
+    expect(notified).toBe(39);
+  });
+
+  test("the repaints stop once another file is open", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    await v.openFile("/p/pic.png", null, cx);
+    await v.openFile("/p/a.txt", null, cx);
+    const before = cx.sleeps.length;
+    let notified = 0;
+    cx.notify = () => notified++;
+    await until(() => false, 60);
+    expect(cx.sleeps.length - before).toBeLessThanOrEqual(1);
+    expect(notified).toBe(0);
+  });
+
+  test("the pane remembers the image and shows it again after a restart", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    await v.openFile("/p/pic.png", null, cx);
+    await settle();
+
+    host.props = { key: "k1", file: "/p/a.txt" };
+    const again = makeView();
+    again.init(undefined, cx);
+    await settle();
+    expect(again.screen).toMatchObject({ kind: "image", path: "/p/pic.png" });
+  });
+
+  test("opening the shown image again exposes it under a new path (the host caches by path)", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    await v.openFile("/p/pic.png", null, cx);
+    await v.openFile("/p/pic.png", null, cx);
+    expect(v.screen.src).toBe("images/k1/2");
+  });
+
+  test("a missing image and an image on another machine show a message", async () => {
+    const v = await opened();
+    await v.openFile("/p/gone.png", null, cx);
+    expect(v.screen.text).toBe("Cannot show /p/gone.png: the file is missing or unreadable");
+    expect(v.doc).toBeNull();
+
+    images.present.add("/p/far.png");
+    await v.openFile("/p/far.png", "box", cx);
+    expect(v.screen.text).toBe("/p/far.png is on another machine. Images there cannot be shown yet.");
+    expect(images.exposed).toEqual([]);
+  });
+
+  test("a text file opened while the image is being exposed wins", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    files.disk.set("/p/b.txt", "b");
+    images.gate = deferred();
+    const gate = images.gate;
+    const first = v.openFile("/p/pic.png", null, cx);
+    await settle();
+    await v.openFile("/p/b.txt", null, cx);
+    gate.resolve();
+    await first;
+    expect(v.screen.kind).toBe("ready");
+    expect(v.doc?.path).toBe("/p/b.txt");
+  });
+
+  test("an image that fails after a text file was opened meanwhile does not replace that file with its message", async () => {
+    const v = await opened();
+    files.disk.set("/p/b.txt", "b");
+    images.gate = deferred();
+    const gate = images.gate;
+    const first = v.openFile("/p/gone.png", null, cx);
+    await settle();
+    await v.openFile("/p/b.txt", null, cx);
+    gate.resolve();
+    await first;
+    expect(v.screen.kind).toBe("ready");
+    expect(v.doc?.path).toBe("/p/b.txt");
+  });
+
+  test("closing starts releasing the image before the draft is flushed", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    await v.openFile("/p/pic.png", null, cx);
+    const order: string[] = [];
+    images.release = async () => {
+      order.push("release");
+    };
+    const w = (v as unknown as { writer: { flush(): Promise<void> } }).writer;
+    w.flush = async () => {
+      order.push("flush");
+    };
+    await v.close(cx);
+    expect(order).toEqual(["release", "flush"]);
+  });
+
+  test("a text file opens after an image, and an svg is still text", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    await v.openFile("/p/pic.png", null, cx);
+    files.disk.set("/p/logo.svg", "<svg/>");
+    await v.openFile("/p/logo.svg", null, cx);
+    expect(v.screen.kind).toBe("ready");
+    expect(v.doc?.text).toBe("<svg/>");
+  });
+
+  test("leaving a dirty document for an image drops its draft", async () => {
+    const v = await opened();
+    code().type("edited", cx);
+    await settle();
+    expect(hasDraft("/p/a.txt")).toBe(true);
+    images.present.add("/p/pic.png");
+    await v.openFile("/p/pic.png", null, cx);
+    expect(v.screen.kind).toBe("image");
+    expect(hasDraft("/p/a.txt")).toBe(false);
+  });
+
+  test("closing the pane releases its image link", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    await v.openFile("/p/pic.png", null, cx);
+    await v.close(cx);
+    expect(images.released).toEqual(["k1"]);
   });
 });
 

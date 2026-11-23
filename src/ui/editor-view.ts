@@ -1,6 +1,6 @@
 // The editor pane (role "editor") and its save/discard/cancel dialog (role "dialog").
 // Depends on ports and core only; entries/editor.ts supplies the adapters (plan §1).
-import { View, div, type AsyncContext, type Context, type Element, type KeyEvent } from "gpui-kit";
+import { View, div, image, type AsyncContext, type Context, type Element, type KeyEvent } from "gpui-kit";
 import { Editor, EditorState, h_flex, v_flex } from "gpui-base";
 import * as herdr from "herdr";
 import {
@@ -39,6 +39,7 @@ import { draftBase, draftDir, paneBase } from "../core/draft/paths";
 import type { PaneState } from "../core/pane-state/pane-state";
 import type { Registry as ExtensionRegistry } from "../core/extensions/registry";
 import { highlightFor, languageFor } from "../core/language/language";
+import { isImagePath } from "../core/media/media";
 import { BUILTIN_THEMES } from "../core/theme/builtin";
 import { HERDR_THEME, nextTheme, pickTheme, resolveSyntax, themeNames, type EditorTheme } from "../core/theme/theme";
 import { MOD_EDITOR, MOD_OPEN, SHARED_KEY } from "../core/names";
@@ -66,11 +67,13 @@ import { classifyText, prepareForSave } from "../core/text/text";
 import { editorModel, type Action } from "../core/view-model/editor";
 import { DraftWriter, type Timer } from "../ports/draft-writer";
 import type { FileStore } from "../ports/file-store";
+import type { ImageStore } from "../ports/image-store";
 import { sweepPaneStates } from "../ports/pane-states";
 import type { SlotStore } from "../ports/slot-store";
 
 export interface EditorDeps {
   files: FileStore;
+  images: ImageStore;
   store: SlotStore;
   extensions: ExtensionRegistry;
 }
@@ -88,10 +91,19 @@ interface SharedState {
   theme?: string;
 }
 
-type Screen = { kind: "loading" } | { kind: "message"; text: string } | { kind: "empty" } | { kind: "ready" };
+type Screen =
+  | { kind: "loading" }
+  | { kind: "message"; text: string }
+  | { kind: "empty" }
+  | { kind: "ready" }
+  /** A picture: `src` is what image() is given (ports/image-store.ts). No document is open. */
+  | { kind: "image"; path: string; src: string };
 
 const POLL_LOCAL_MS = 3000,
   POLL_REMOTE_MS = 10000;
+
+/** Waits between repaints after a picture is opened: 3 s of quick ones, then one a second up to 30 s for a slow decode. */
+const IMAGE_REPAINT_WAITS: readonly number[] = [...Array<number>(12).fill(250), ...Array<number>(27).fill(1000)];
 
 /** master-only host APIs, looked up at run time so the mod still loads on 0.1.15 (spike Step 0). */
 /**
@@ -249,7 +261,11 @@ export abstract class EditorView extends View {
       run(`${MOD_EDITOR}.${encodeCommand("reply", { to: d.to, req: d.req, choice: this.choice ?? "cancel" })}`);
       return;
     }
+    // Started first: at quit only exec calls started now are sure to finish (gpui-kit View.close).
+    // The link of a shown picture; the pane makes a new one when it starts again.
+    const released = this.deps?.images.release(this.key);
     await this.writer?.flush();
+    await released;
   }
 
   // ---------- opening ----------
@@ -290,6 +306,10 @@ export abstract class EditorView extends View {
     if (stale()) return;
     this.screen = { kind: "loading" };
     cx.notify();
+    if (isImagePath(path)) {
+      await this.loadImage(path, on, stale, cx);
+      return;
+    }
     let text: string | null;
     try {
       text = await this.deps.files.read(path, on);
@@ -346,6 +366,39 @@ export abstract class EditorView extends View {
     this.draftOffer = found.draft;
     this.draftError = found.error;
     this.screen = { kind: "ready" };
+  }
+
+  /** Shows a picture instead of text (#42). Nothing is read here: the host's image() loads the file. */
+  private async loadImage(path: string, on: string | null, stale: () => boolean, cx: AsyncContext): Promise<void> {
+    if (on !== null) {
+      // The link is made with exec on this computer; there is no way yet to fetch the file.
+      this.showMessage(`${path} is on another machine. Images there cannot be shown yet.`);
+      return;
+    }
+    let src: string;
+    try {
+      src = await this.deps.images.expose(path, this.key);
+    } catch (e) {
+      if (!stale()) this.showMessage(`Cannot show ${path}: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    if (stale()) return;
+    this.code?.release();
+    this.code = null;
+    this.doc = null;
+    this.draftOffer = null;
+    const shown: Screen = { kind: "image", path, src };
+    this.screen = shown;
+    // image() loads in the background and a still pane is not repainted when it is done: on the
+    // device the picture was still missing 3 s after opening (S13). Repaint for the first seconds.
+    cx.spawn(async (cx) => {
+      for (const wait of IMAGE_REPAINT_WAITS) {
+        await cx.sleep(wait);
+        if (this.screen !== shown) return;
+        cx.notify();
+      }
+    });
+    this.deps.store.save<PaneState>(paneBase(this.key), { file: path, on, seenAt: Date.now() }).catch(() => {});
   }
 
   /** Selects `at` in the editor; EditorState scrolls the selection into view (spike S12). */
@@ -797,6 +850,7 @@ export abstract class EditorView extends View {
         if (!this.code) this.handle?.focus();
       });
     if (this.screen.kind === "empty") return root.child(this.renderEmpty(t));
+    if (this.screen.kind === "image") return root.children(this.renderImage(this.screen, t));
     if (this.screen.kind !== "ready" || !this.doc || !this.code) {
       const text = this.screen.kind === "message" ? this.screen.text : "Loading…";
       return root.child(div().p(16).text_color(t.dim).child(text));
@@ -900,6 +954,44 @@ export abstract class EditorView extends View {
         ),
     );
     return root.child(header).children(banners).child(Editor.new(this.code).flex_1().min_h(0));
+  }
+
+  /**
+   * The picture, scaled down to fit the pane and never scaled up. image() takes its height from its
+   * width, so only a centering flex parent with both max sizes keeps it inside (spike S13); what
+   * still overflows is clipped instead of being painted over the header.
+   */
+  private renderImage(screen: { path: string; src: string }, t: Palette): Element[] {
+    const header = h_flex()
+      .id("editor-header")
+      .h(34)
+      .flex_none()
+      .px(12)
+      .gap(8)
+      .items_center()
+      .border_b(1)
+      .border_color(t.border)
+      .child(
+        div()
+          .font_semibold()
+          .child(screen.path.split(/[\\/]/).pop() ?? screen.path),
+      )
+      .child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(screen.path));
+    const body = div()
+      .flex_1()
+      .min_h(0)
+      .p(12)
+      .overflow_hidden()
+      .child(
+        div()
+          .size_full()
+          .flex()
+          .items_center()
+          .justify_center()
+          .overflow_hidden()
+          .child(image(screen.src).max_w_full().max_h_full()),
+      );
+    return [header, body];
   }
 
   /** No file: a button that opens the quick open overlay, and the key bound to it, if any. */

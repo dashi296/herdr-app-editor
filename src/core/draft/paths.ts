@@ -27,3 +27,8 @@ export function paneBase(key: string): string {
 export function slotFiles(base: string): { a: string; b: string } {
   return { a: `${base}.a.json`, b: `${base}.b.json` };
 }
+
+/** Folder of the links through which a pane shows images (ports/image-store.ts). */
+export function imageDir(key: string): string {
+  return `images/${safe(key)}`;
+}

@@ -1,0 +1,247 @@
+// HerdrImageStore against a real temporary folder standing in for appHome(), with exec running
+// the real `test`, `ln` and `rm`.
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { lstat, mkdtemp, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { NS } from "../../src/core/names";
+import { host, install, reset, until } from "./host";
+
+install();
+const { HerdrImageStore, FOREIGN_LINK_MAX_AGE_MS } = await import("../../src/adapters/herdr/image-store");
+
+let home: string, outside: string;
+const dir = (key: string) => join(home, "data", NS, "images", key);
+
+beforeEach(async () => {
+  reset();
+  home = await mkdtemp(join(tmpdir(), "image-home-"));
+  outside = await mkdtemp(join(tmpdir(), "image-src-"));
+  host.appHome = home;
+  host.exec = async (cmd, args) => {
+    const p = Bun.spawn([cmd, ...args], { stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+    return { code, stdout, stderr };
+  };
+});
+
+afterEach(async () => {
+  await rm(home, { recursive: true, force: true });
+  await rm(outside, { recursive: true, force: true });
+});
+
+test("expose links the file under data/<ns>/images/<key>/ and returns the path relative to the app home", async () => {
+  const pic = join(outside, "a b.png");
+  await writeFile(pic, "png");
+  const store = new HerdrImageStore();
+  const rel = await store.expose(pic, "k1");
+  expect(rel.startsWith(`data/${NS}/images/k1/`)).toBe(true);
+  expect((await lstat(join(home, rel))).isSymbolicLink()).toBe(true);
+  expect(await readlink(join(home, rel))).toBe(pic);
+});
+
+test("every expose uses a new path and removes the pane's earlier link, not the file it pointed to", async () => {
+  const a = join(outside, "a.png"),
+    b = join(outside, "b.png");
+  await writeFile(a, "a");
+  await writeFile(b, "b");
+  const store = new HerdrImageStore();
+  const first = await store.expose(a, "k1");
+  const second = await store.expose(a, "k1");
+  const third = await store.expose(b, "k1");
+  expect(new Set([first, second, third]).size).toBe(3);
+  expect(await readdir(dir("k1"))).toEqual([third.split("/").pop()!]);
+  expect(await Bun.file(a).text()).toBe("a");
+});
+
+test("panes do not remove each other's links", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  await store.expose(a, "k1");
+  await store.expose(a, "k2");
+  await store.release("k2");
+  expect((await readdir(dir("k1"))).length).toBe(1);
+  expect(await readdir(dir("k2"))).toEqual([]);
+});
+
+test("release starts removing its own links before anything else is awaited (at quit only new exec calls finish)", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  const shown = await store.expose(a, "k1");
+  const calls: string[][] = [];
+  const real = host.exec;
+  host.exec = (cmd, args, opts) => {
+    calls.push([cmd, ...args]);
+    return real(cmd, args, opts);
+  };
+  const done = store.release("k1");
+  expect(calls).toEqual([["rm", "-f", "--", join(home, shown)]]);
+  await done;
+  expect(await readdir(dir("k1"))).toEqual([]);
+});
+
+test("closing while ln runs also starts rm of that link once a second for longer than ln may take", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  let resume!: () => void;
+  const held = new Promise<void>((r) => (resume = r));
+  const calls: string[][] = [];
+  // After close, as at quit: nothing new runs, but the ln already running and the sh started by close finish.
+  let quit = false;
+  const real = host.exec;
+  host.exec = (cmd, args, opts) => {
+    if (quit) return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+    calls.push([cmd, ...args]);
+    if (cmd === "ln") return held.then(() => real(cmd, args, opts));
+    return real(cmd, args, opts);
+  };
+  void store.expose(a, "k1").catch(() => {});
+  await until(() => calls.some((c) => c[0] === "ln"));
+  const link = calls.find((c) => c[0] === "ln")!.at(-1)!;
+  calls.length = 0;
+  void store.release("k1");
+  quit = true;
+  expect(calls).toEqual([
+    ["rm", "-f", "--", link],
+    ["sh", "-c", 'for i in 1 2 3 4 5 6; do sleep 1; rm -f -- "$@"; done', "sh", link],
+  ]);
+  const exists = () =>
+    lstat(link).then(
+      () => true,
+      () => false,
+    );
+  // The ln takes longer than the first repeat.
+  await Bun.sleep(1500);
+  resume();
+  await until(() => false, 50);
+  for (let i = 0; i < 40 && !(await exists()); i++) await Bun.sleep(25);
+  expect(await exists()).toBe(true);
+  for (let i = 0; i < 60 && (await exists()); i++) await Bun.sleep(50);
+  expect(await exists()).toBe(false);
+}, 10_000);
+
+test("closing while the file is being checked makes no link at all", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  let resume!: () => void;
+  const held = new Promise<void>((r) => (resume = r));
+  const cmds: string[] = [];
+  const real = host.exec;
+  host.exec = (cmd, args, opts) => {
+    cmds.push(cmd);
+    if (cmd === "test") return held.then(() => real(cmd, args, opts));
+    return real(cmd, args, opts);
+  };
+  const exposing = store.expose(a, "k1");
+  await until(() => cmds.includes("test"));
+  const releasing = store.release("k1");
+  resume();
+  await expect(exposing).rejects.toThrow("the pane was closed");
+  await releasing;
+  expect(cmds).not.toContain("ln");
+  expect(await readdir(dir("k1"))).toEqual([]);
+});
+
+test("release with no ln running starts no later rm", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  await store.expose(a, "k1");
+  const cmds: string[] = [];
+  const real = host.exec;
+  host.exec = (cmd, args, opts) => {
+    cmds.push(cmd);
+    return real(cmd, args, opts);
+  };
+  await store.release("k1");
+  expect(cmds).not.toContain("sh");
+});
+
+test("a copy of the mod closing for the same pane does not break the other copy's expose", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const kept = new HerdrImageStore(),
+    dropped = new HerdrImageStore();
+  // Hold the kept copy's existence check open, so the dropped copy closes in the middle of its expose.
+  let resume!: () => void;
+  const held = new Promise<void>((r) => (resume = r));
+  const real = host.exec;
+  host.exec = async (cmd, args, opts) => {
+    if (cmd === "test") await held;
+    return real(cmd, args, opts);
+  };
+  const exposing = kept.expose(a, "k1");
+  await until(() => existsSync(dir("k1")));
+  await dropped.release("k1");
+  resume();
+  const shown = await exposing;
+  expect(await readdir(dir("k1"))).toEqual([shown.split("/").pop()!]);
+});
+
+test("a missing file and a folder are rejected, and no link is left", async () => {
+  const store = new HerdrImageStore();
+  await expect(store.expose(join(outside, "nope.png"), "k1")).rejects.toThrow("missing or unreadable");
+  await expect(store.expose(outside, "k1")).rejects.toThrow("missing or unreadable");
+  expect(await readdir(dir("k1"))).toEqual([]);
+});
+
+test("exposes started together run one after another: only the last link is left", async () => {
+  const a = join(outside, "a.png"),
+    b = join(outside, "b.png");
+  await writeFile(a, "a");
+  await writeFile(b, "b");
+  const store = new HerdrImageStore();
+  const [, , last] = await Promise.all([store.expose(a, "k1"), store.expose(b, "k1"), store.expose(a, "k1")]);
+  expect(await readdir(dir("k1"))).toEqual([last.split("/").pop()!]);
+});
+
+test("a failed expose does not block the next one", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  await expect(store.expose(join(outside, "nope.png"), "k1")).rejects.toThrow();
+  expect((await store.expose(a, "k1")).startsWith(`data/${NS}/images/k1/`)).toBe(true);
+});
+
+test("a relative path is refused: its link would point inside the images folder", async () => {
+  const store = new HerdrImageStore();
+  await expect(store.expose("pictures/a.png", "k1")).rejects.toThrow("not an absolute path");
+  await expect(store.expose("-s.png", "k1")).rejects.toThrow("not an absolute path");
+});
+
+test("a second store for the same pane leaves the first one's fresh link, and removes links named a minute ago or not by this code", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const shown = await new HerdrImageStore().expose(a, "k1");
+  const other = new HerdrImageStore();
+  await other.release("k1"); // the dropped copy closes
+  expect(await readdir(dir("k1"))).toEqual([shown.split("/").pop()!]);
+
+  const second = await other.expose(a, "k1");
+  expect((await readdir(dir("k1"))).length).toBe(2);
+
+  // A link left by an earlier run: named a minute ago, or not named by this code at all.
+  const old = `${(Date.now() - FOREIGN_LINK_MAX_AGE_MS).toString(36)}-old`;
+  await symlink(a, join(dir("k1"), old));
+  await symlink(a, join(dir("k1"), "junk"));
+  await other.release("k1");
+  expect(await readdir(dir("k1"))).toEqual([shown.split("/").pop()!]);
+  expect(second).not.toBe(shown);
+});
+
+test("release of a pane that never showed an image does nothing", async () => {
+  await new HerdrImageStore().release("never");
+});
+
+test("an unsafe pane key is refused before anything is touched", async () => {
+  await expect(new HerdrImageStore().expose(join(outside, "a.png"), "../x")).rejects.toThrow("unsafe store name");
+});

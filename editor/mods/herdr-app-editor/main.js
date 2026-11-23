@@ -34,9 +34,114 @@ class HerdrFileStore {
   }
 }
 
-// src/adapters/herdr/slot-io.ts
+// src/adapters/herdr/image-store.ts
 import * as fs from "fs/promises";
-import { appHome } from "herdr";
+import { appHome, exec as exec2, window as window2 } from "herdr";
+
+// src/core/store/slots.ts
+var SCHEMA = 1;
+function fnv1a32(text) {
+  let h = 2166136261;
+  const mix = (byte) => {
+    h = Math.imul(h ^ byte, 16777619) >>> 0;
+  };
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    if (c < 128)
+      mix(c);
+    else if (c < 2048) {
+      mix(192 | c >> 6);
+      mix(128 | c & 63);
+    } else if (c < 65536) {
+      mix(224 | c >> 12);
+      mix(128 | c >> 6 & 63);
+      mix(128 | c & 63);
+    } else {
+      mix(240 | c >> 18);
+      mix(128 | c >> 12 & 63);
+      mix(128 | c >> 6 & 63);
+      mix(128 | c & 63);
+    }
+  }
+  return h.toString(16).padStart(8, "0");
+}
+function canonical(value) {
+  if (Array.isArray(value))
+    return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const o = value;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+function checksumOf(r) {
+  return fnv1a32(canonical({ schema: r.schema, seq: r.seq, deleted: r.deleted, payload: r.payload }));
+}
+function makeRecord(seq, payload) {
+  const base = { schema: SCHEMA, seq, deleted: payload === null, payload };
+  return { ...base, checksum: checksumOf(base) };
+}
+function parseSlot(raw) {
+  if (raw == null)
+    return null;
+  let r;
+  try {
+    r = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!r || typeof r !== "object" || r.schema !== SCHEMA || !Number.isInteger(r.seq) || typeof r.deleted !== "boolean")
+    return null;
+  if (r.deleted !== (r.payload === null))
+    return null;
+  return checksumOf(r) === r.checksum ? r : null;
+}
+function pickCurrent(a, b) {
+  const ra = parseSlot(a), rb = parseSlot(b);
+  const best = !ra ? rb ? "b" : null : !rb ? "a" : ra.seq >= rb.seq ? "a" : "b";
+  if (!best)
+    return { slot: null, payload: null, seq: 0 };
+  const r = best === "a" ? ra : rb;
+  return { slot: best, payload: r.deleted ? null : r.payload, seq: r.seq };
+}
+var other = (s) => s === "a" ? "b" : "a";
+function planWrite(a, b, payload) {
+  const cur = pickCurrent(a, b);
+  return { target: cur.slot ? other(cur.slot) : "a", record: makeRecord(cur.seq + 1, payload) };
+}
+function planDelete(a, b) {
+  if (parseSlot(a) === null && parseSlot(b) === null)
+    return [];
+  const { target, record } = planWrite(a, b, null);
+  return [
+    { op: "write", slot: target, record },
+    { op: "unlink", slot: other(target) },
+    { op: "unlink", slot: target }
+  ];
+}
+
+// src/core/draft/paths.ts
+var SAFE = /^[A-Za-z0-9_-]+$/;
+function safe(name) {
+  if (!SAFE.test(name))
+    throw new Error(`unsafe store name: ${JSON.stringify(name)}`);
+  return name;
+}
+function draftDir(machine, path) {
+  return `drafts/${fnv1a32(`${machine ?? ""}\x00${path}`)}`;
+}
+function draftBase(machine, path, ownerKey) {
+  return `${draftDir(machine, path)}/${safe(ownerKey)}`;
+}
+function paneBase(key) {
+  return `panes/${safe(key)}`;
+}
+function slotFiles(base) {
+  return { a: `${base}.a.json`, b: `${base}.b.json` };
+}
+function imageDir(key) {
+  return `images/${safe(key)}`;
+}
 
 // src/core/names.ts
 var NS = "herdr-app-editor";
@@ -44,40 +149,128 @@ var MOD_EDITOR = "herdr-app-editor";
 var MOD_OPEN = "herdr-app-editor-open";
 var SHARED_KEY = NS;
 
+// src/adapters/herdr/image-store.ts
+var FOREIGN_LINK_MAX_AGE_MS = 60000;
+function isStale(name, now) {
+  const at = parseInt(name.split("-")[0] ?? "", 36);
+  return !(now - at < FOREIGN_LINK_MAX_AGE_MS);
+}
+
+class HerdrImageStore {
+  queue = Promise.resolve();
+  made = new Map;
+  linking = new Set;
+  releases = new Map;
+  rel(paneKey) {
+    return `data/${NS}/${imageDir(paneKey)}`;
+  }
+  queued(fn) {
+    const run = this.queue.then(fn, fn);
+    this.queue = run.catch(() => {});
+    return run;
+  }
+  expose(path, paneKey) {
+    const released = this.releases.get(paneKey) ?? 0;
+    return this.queued(async () => {
+      const rel = this.rel(paneKey), dir = `${appHome()}/${rel}`;
+      const windows = window2()?.platform === "windows";
+      if (!windows && !path.startsWith("/"))
+        throw new Error("not an absolute path");
+      await this.remove(paneKey);
+      await fs.mkdir(dir, { recursive: true });
+      const name = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      const mine = this.made.get(paneKey) ?? new Set;
+      this.made.set(paneKey, mine.add(name));
+      if (windows) {
+        await fs.writeFile(`${dir}/${name}`, await fs.readFile(path));
+      } else {
+        const there = await exec2("test", ["-f", path, "-a", "-r", path], { timeout: 5000 });
+        if (there.code !== 0)
+          throw new Error("the file is missing or unreadable");
+        if ((this.releases.get(paneKey) ?? 0) !== released)
+          throw new Error("the pane was closed");
+        const link = `${dir}/${name}`;
+        this.linking.add(link);
+        const made = await exec2("ln", ["-s", "--", path, link], { timeout: 5000 }).finally(() => this.linking.delete(link));
+        if (made.code !== 0)
+          throw new Error(made.stderr.trim() || `ln exited with ${made.code}`);
+      }
+      return `${rel}/${name}`;
+    });
+  }
+  release(paneKey) {
+    this.releases.set(paneKey, (this.releases.get(paneKey) ?? 0) + 1);
+    const mine = [...this.made.get(paneKey) ?? []];
+    let now = Promise.resolve();
+    try {
+      if (mine.length > 0 && window2()?.platform !== "windows") {
+        const dir = `${appHome()}/${this.rel(paneKey)}`;
+        const paths = mine.map((n) => `${dir}/${n}`);
+        now = exec2("rm", ["-f", "--", ...paths], { timeout: 5000 }).catch(() => {});
+        const late = paths.filter((p) => this.linking.has(p));
+        if (late.length > 0)
+          exec2("sh", ["-c", 'for i in 1 2 3 4 5 6; do sleep 1; rm -f -- "$@"; done', "sh", ...late], {
+            timeout: 1e4
+          }).catch(() => {});
+      }
+    } catch {}
+    return Promise.all([now, this.queued(() => this.remove(paneKey))]).then(() => {});
+  }
+  async remove(paneKey) {
+    try {
+      const dir = `${appHome()}/${this.rel(paneKey)}`;
+      if (!await fs.exists(dir))
+        return;
+      const mine = this.made.get(paneKey), now = Date.now();
+      const names = (await fs.readdir(dir)).filter((n) => mine?.has(n) || isStale(n, now));
+      this.made.delete(paneKey);
+      if (names.length > 0) {
+        if (window2()?.platform === "windows")
+          for (const n of names)
+            await fs.unlink(`${dir}/${n}`);
+        else
+          await exec2("rm", ["-f", "--", ...names.map((n) => `${dir}/${n}`)], { timeout: 5000 });
+      }
+    } catch {}
+  }
+}
+
 // src/adapters/herdr/slot-io.ts
+import * as fs2 from "fs/promises";
+import { appHome as appHome2 } from "herdr";
 class HerdrSlotIO {
-  root = `${appHome()}/data/${NS}`;
+  root = `${appHome2()}/data/${NS}`;
   abs(rel) {
     return `${this.root}/${rel}`;
   }
   async read(rel) {
     const path = this.abs(rel);
-    if (!await fs.exists(path))
+    if (!await fs2.exists(path))
       return null;
-    return await fs.readFile(path, "utf8");
+    return await fs2.readFile(path, "utf8");
   }
   async write(rel, text) {
     const path = this.abs(rel);
-    await fs.mkdir(path.slice(0, path.lastIndexOf("/")), { recursive: true });
-    await fs.writeFile(path, text);
+    await fs2.mkdir(path.slice(0, path.lastIndexOf("/")), { recursive: true });
+    await fs2.writeFile(path, text);
   }
   async unlink(rel) {
     const path = this.abs(rel);
-    if (await fs.exists(path))
-      await fs.unlink(path);
+    if (await fs2.exists(path))
+      await fs2.unlink(path);
   }
   async removeDirIfEmpty(relDir) {
     try {
       const path = this.abs(relDir);
-      if (await fs.exists(path) && (await fs.readdir(path)).length === 0)
-        await fs.rmdir(path);
+      if (await fs2.exists(path) && (await fs2.readdir(path)).length === 0)
+        await fs2.rmdir(path);
     } catch {}
   }
   async list(relDir) {
     const path = this.abs(relDir);
-    if (!await fs.exists(path))
+    if (!await fs2.exists(path))
       return [];
-    return await fs.readdir(path);
+    return await fs2.readdir(path);
   }
 }
 
@@ -262,108 +455,6 @@ function createRegistry(extensions) {
 // src/extensions/index.ts
 var EXTENSIONS = [];
 
-// src/core/store/slots.ts
-var SCHEMA = 1;
-function fnv1a32(text) {
-  let h = 2166136261;
-  const mix = (byte) => {
-    h = Math.imul(h ^ byte, 16777619) >>> 0;
-  };
-  for (const ch of text) {
-    const c = ch.codePointAt(0);
-    if (c < 128)
-      mix(c);
-    else if (c < 2048) {
-      mix(192 | c >> 6);
-      mix(128 | c & 63);
-    } else if (c < 65536) {
-      mix(224 | c >> 12);
-      mix(128 | c >> 6 & 63);
-      mix(128 | c & 63);
-    } else {
-      mix(240 | c >> 18);
-      mix(128 | c >> 12 & 63);
-      mix(128 | c >> 6 & 63);
-      mix(128 | c & 63);
-    }
-  }
-  return h.toString(16).padStart(8, "0");
-}
-function canonical(value) {
-  if (Array.isArray(value))
-    return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    const o = value;
-    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-function checksumOf(r) {
-  return fnv1a32(canonical({ schema: r.schema, seq: r.seq, deleted: r.deleted, payload: r.payload }));
-}
-function makeRecord(seq, payload) {
-  const base = { schema: SCHEMA, seq, deleted: payload === null, payload };
-  return { ...base, checksum: checksumOf(base) };
-}
-function parseSlot(raw) {
-  if (raw == null)
-    return null;
-  let r;
-  try {
-    r = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!r || typeof r !== "object" || r.schema !== SCHEMA || !Number.isInteger(r.seq) || typeof r.deleted !== "boolean")
-    return null;
-  if (r.deleted !== (r.payload === null))
-    return null;
-  return checksumOf(r) === r.checksum ? r : null;
-}
-function pickCurrent(a, b) {
-  const ra = parseSlot(a), rb = parseSlot(b);
-  const best = !ra ? rb ? "b" : null : !rb ? "a" : ra.seq >= rb.seq ? "a" : "b";
-  if (!best)
-    return { slot: null, payload: null, seq: 0 };
-  const r = best === "a" ? ra : rb;
-  return { slot: best, payload: r.deleted ? null : r.payload, seq: r.seq };
-}
-var other = (s) => s === "a" ? "b" : "a";
-function planWrite(a, b, payload) {
-  const cur = pickCurrent(a, b);
-  return { target: cur.slot ? other(cur.slot) : "a", record: makeRecord(cur.seq + 1, payload) };
-}
-function planDelete(a, b) {
-  if (parseSlot(a) === null && parseSlot(b) === null)
-    return [];
-  const { target, record } = planWrite(a, b, null);
-  return [
-    { op: "write", slot: target, record },
-    { op: "unlink", slot: other(target) },
-    { op: "unlink", slot: target }
-  ];
-}
-
-// src/core/draft/paths.ts
-var SAFE = /^[A-Za-z0-9_-]+$/;
-function safe(name) {
-  if (!SAFE.test(name))
-    throw new Error(`unsafe store name: ${JSON.stringify(name)}`);
-  return name;
-}
-function draftDir(machine, path) {
-  return `drafts/${fnv1a32(`${machine ?? ""}\x00${path}`)}`;
-}
-function draftBase(machine, path, ownerKey) {
-  return `${draftDir(machine, path)}/${safe(ownerKey)}`;
-}
-function paneBase(key) {
-  return `panes/${safe(key)}`;
-}
-function slotFiles(base) {
-  return { a: `${base}.a.json`, b: `${base}.b.json` };
-}
-
 // src/ports/slot-store.ts
 var queues = new Map;
 
@@ -442,7 +533,7 @@ class SlotStore {
 }
 
 // src/ui/editor-view.ts
-import { View, div } from "gpui-kit";
+import { View, div, image } from "gpui-kit";
 import { Editor, EditorState, h_flex, v_flex } from "gpui-base";
 import * as herdr from "herdr";
 import {
@@ -459,7 +550,7 @@ import {
   setShared,
   spaces,
   theme as theme2,
-  window as window2
+  window as window3
 } from "herdr";
 
 // src/core/document/document.ts
@@ -601,6 +692,16 @@ function highlightFor(path, length, opts = {}) {
   if (!opts.force && language !== "txt" && length > HIGHLIGHT_LIMIT)
     return { language: "txt", off: true };
   return { language, off: false };
+}
+
+// src/core/media/media.ts
+var IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"]);
+function isImagePath(path) {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0)
+    return false;
+  return IMAGE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
 }
 // editor-themes/dracula.json
 var dracula_default = {
@@ -970,6 +1071,7 @@ async function sweepPaneStates(store, selfKey, now) {
 // src/ui/editor-view.ts
 var POLL_LOCAL_MS = 3000;
 var POLL_REMOTE_MS = 1e4;
+var IMAGE_REPAINT_WAITS = [...Array(12).fill(250), ...Array(27).fill(1000)];
 var SWEEP_DELAY_MS = 60000;
 var sweep = "waiting";
 var isChecking = () => herdr.checking?.() ?? false;
@@ -1091,7 +1193,9 @@ class EditorView extends View {
       run(`${MOD_EDITOR}.${encodeCommand("reply", { to: d.to, req: d.req, choice: this.choice ?? "cancel" })}`);
       return;
     }
+    const released = this.deps?.images.release(this.key);
     await this.writer?.flush();
+    await released;
   }
   async openFile(path, on, cx, at = null) {
     const seq = ++this.openSeq;
@@ -1127,6 +1231,10 @@ class EditorView extends View {
       return;
     this.screen = { kind: "loading" };
     cx.notify();
+    if (isImagePath(path)) {
+      await this.loadImage(path, on, stale, cx);
+      return;
+    }
     let text;
     try {
       text = await this.deps.files.read(path, on);
@@ -1174,6 +1282,37 @@ class EditorView extends View {
     this.draftOffer = found.draft;
     this.draftError = found.error;
     this.screen = { kind: "ready" };
+  }
+  async loadImage(path, on, stale, cx) {
+    if (on !== null) {
+      this.showMessage(`${path} is on another machine. Images there cannot be shown yet.`);
+      return;
+    }
+    let src;
+    try {
+      src = await this.deps.images.expose(path, this.key);
+    } catch (e) {
+      if (!stale())
+        this.showMessage(`Cannot show ${path}: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    if (stale())
+      return;
+    this.code?.release();
+    this.code = null;
+    this.doc = null;
+    this.draftOffer = null;
+    const shown = { kind: "image", path, src };
+    this.screen = shown;
+    cx.spawn(async (cx2) => {
+      for (const wait of IMAGE_REPAINT_WAITS) {
+        await cx2.sleep(wait);
+        if (this.screen !== shown)
+          return;
+        cx2.notify();
+      }
+    });
+    this.deps.store.save(paneBase(this.key), { file: path, on, seenAt: Date.now() }).catch(() => {});
   }
   jumpTo(at) {
     if (this.loading || this.screen.kind !== "ready" || !this.code) {
@@ -1394,7 +1533,7 @@ class EditorView extends View {
     });
   }
   isVisible() {
-    if (window2()?.active === false)
+    if (window3()?.active === false)
       return false;
     const entry = readShared().registry?.[this.key];
     if (!entry)
@@ -1541,7 +1680,7 @@ class EditorView extends View {
     cx.notify();
   }
   onKey(e, cx) {
-    const saveKey = window2()?.platform === "macos" ? "cmd-s" : "ctrl-s";
+    const saveKey = window3()?.platform === "macos" ? "cmd-s" : "ctrl-s";
     if (e.keystroke !== saveKey || this.role !== "editor")
       return;
     cx.stop_propagation();
@@ -1560,6 +1699,8 @@ class EditorView extends View {
     });
     if (this.screen.kind === "empty")
       return root.child(this.renderEmpty(t));
+    if (this.screen.kind === "image")
+      return root.children(this.renderImage(this.screen, t));
     if (this.screen.kind !== "ready" || !this.doc || !this.code) {
       const text = this.screen.kind === "message" ? this.screen.text : "Loading…";
       return root.child(div().p(16).text_color(t.dim).child(text));
@@ -1595,6 +1736,11 @@ class EditorView extends View {
     ]));
     return root.child(header).children(banners).child(Editor.new(this.code).flex_1().min_h(0));
   }
+  renderImage(screen, t) {
+    const header = h_flex().id("editor-header").h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).child(div().font_semibold().child(screen.path.split(/[\\/]/).pop() ?? screen.path)).child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(screen.path));
+    const body = div().flex_1().min_h(0).p(12).overflow_hidden().child(div().size_full().flex().items_center().justify_center().overflow_hidden().child(image(screen.src).max_w_full().max_h_full()));
+    return [header, body];
+  }
   renderEmpty(t) {
     const bound = keys().find((k) => k.action === `mod.open:${MOD_OPEN}`)?.keys;
     return v_flex().p(16).gap(10).items_start().child(div().text_color(t.dim).child("No file open.")).child(h_flex().gap(8).items_center().child(this.button("open-file", "Open file…", t, () => {
@@ -1629,6 +1775,7 @@ class Editor2 extends EditorView {
   makeDeps() {
     return {
       files: new HerdrFileStore,
+      images: new HerdrImageStore,
       store: new SlotStore(new HerdrSlotIO),
       extensions: createRegistry(EXTENSIONS)
     };
