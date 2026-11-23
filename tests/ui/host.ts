@@ -109,10 +109,13 @@ export class FakeInputState {
  */
 const element = (): unknown => {
   let id: string | null = null;
+  const calls: string[] = [];
   const self: unknown = new Proxy(function () {}, {
     get:
       (_t, key) =>
       (...args: unknown[]) => {
+        if (key === "child" && pictures.has(args[0] as object)) host.imageParentStyles = [...calls];
+        calls.push(String(key));
         if (key === "id") id = String(args[0]);
         else if (key === "on_click" && id !== null) host.clicks.set(id, args[0] as Click);
         else if (key === "child" && typeof args[0] === "string") host.texts.push(args[0]);
@@ -123,6 +126,8 @@ const element = (): unknown => {
   return self;
 };
 type Click = (event: unknown, cx: unknown) => void;
+/** Elements made by image(), so the element given one as a child can record its styles. */
+const pictures = new WeakSet<object>();
 
 export interface FakePane {
   pane: string;
@@ -188,6 +193,8 @@ export const host = {
   images: [] as string[],
   /** The methods called on the last image() element, in order. */
   imageStyles: [] as string[],
+  /** The methods called on the element the last picture was put in, before .child(picture). */
+  imageParentStyles: [] as string[],
 };
 
 export function reset() {
@@ -213,6 +220,7 @@ export function reset() {
   host.reads = [];
   host.images = [];
   host.imageStyles = [];
+  host.imageParentStyles = [];
   FakeEditorState.created = [];
   FakeInputState.created = [];
 }
@@ -247,6 +255,7 @@ export function install() {
           return self;
         },
       });
+      pictures.add(self as object);
       return self;
     },
   }));

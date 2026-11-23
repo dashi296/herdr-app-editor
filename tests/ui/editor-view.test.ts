@@ -514,6 +514,8 @@ describe("images (#42)", () => {
     expect(host.images).toEqual(["images/k1/1"]);
     // Scaled down to fit both ways, never up (spike S13: only both max sizes keep it inside).
     expect(host.imageStyles).toEqual(["max_w_full", "max_h_full"]);
+    // Centred in the pane, and clipped if the host draws it larger than the room it has.
+    expect(host.imageParentStyles).toEqual(["size_full", "flex", "items_center", "justify_center", "overflow_hidden"]);
     expect(host.texts).toEqual(["pic.PNG", "/p/pic.PNG"]);
   });
 

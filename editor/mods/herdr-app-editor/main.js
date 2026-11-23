@@ -159,6 +159,7 @@ function isStale(name, now) {
 class HerdrImageStore {
   queue = Promise.resolve();
   made = new Map;
+  linking = new Set;
   rel(paneKey) {
     return `data/${NS}/${imageDir(paneKey)}`;
   }
@@ -184,7 +185,9 @@ class HerdrImageStore {
         const there = await exec2("test", ["-f", path, "-a", "-r", path], { timeout: 5000 });
         if (there.code !== 0)
           throw new Error("the file is missing or unreadable");
-        const made = await exec2("ln", ["-s", "--", path, `${dir}/${name}`], { timeout: 5000 });
+        const link = `${dir}/${name}`;
+        this.linking.add(link);
+        const made = await exec2("ln", ["-s", "--", path, link], { timeout: 5000 }).finally(() => this.linking.delete(link));
         if (made.code !== 0)
           throw new Error(made.stderr.trim() || `ln exited with ${made.code}`);
       }
@@ -197,7 +200,11 @@ class HerdrImageStore {
     try {
       if (mine.length > 0 && window2()?.platform !== "windows") {
         const dir = `${appHome()}/${this.rel(paneKey)}`;
-        now = exec2("rm", ["-f", "--", ...mine.map((n) => `${dir}/${n}`)], { timeout: 5000 }).catch(() => {});
+        const paths = mine.map((n) => `${dir}/${n}`);
+        now = exec2("rm", ["-f", "--", ...paths], { timeout: 5000 }).catch(() => {});
+        const late = paths.filter((p) => this.linking.has(p));
+        if (late.length > 0)
+          exec2("sh", ["-c", 'sleep 1; rm -f -- "$@"', "sh", ...late], { timeout: 5000 }).catch(() => {});
       }
     } catch {}
     return Promise.all([now, this.queued(() => this.remove(paneKey))]).then(() => {});

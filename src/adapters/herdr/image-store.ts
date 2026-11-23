@@ -24,6 +24,8 @@ export class HerdrImageStore implements ImageStore {
   private queue: Promise<unknown> = Promise.resolve();
   /** Names this store made, by pane key. */
   private made = new Map<string, Set<string>>();
+  /** Full paths whose `ln` has started and not finished. */
+  private linking = new Set<string>();
 
   private rel(paneKey: string): string {
     return `data/${NS}/${imageDir(paneKey)}`;
@@ -54,7 +56,11 @@ export class HerdrImageStore implements ImageStore {
         // ln -s succeeds for a missing target and image() then shows nothing, so check first.
         const there = await exec("test", ["-f", path, "-a", "-r", path], { timeout: 5000 });
         if (there.code !== 0) throw new Error("the file is missing or unreadable");
-        const made = await exec("ln", ["-s", "--", path, `${dir}/${name}`], { timeout: 5000 });
+        const link = `${dir}/${name}`;
+        this.linking.add(link);
+        const made = await exec("ln", ["-s", "--", path, link], { timeout: 5000 }).finally(() =>
+          this.linking.delete(link),
+        );
         if (made.code !== 0) throw new Error(made.stderr.trim() || `ln exited with ${made.code}`);
       }
       return `${rel}/${name}`;
@@ -65,13 +71,20 @@ export class HerdrImageStore implements ImageStore {
     // At quit only exec calls started now are sure to finish (gpui-kit View.close): this store's own
     // links are removed at once, before waiting for the queue or the fs. The queued pass after it
     // removes a link an expose still running makes, and old links of other stores.
+    // An `ln` still running may finish after that rm, and at quit the queued pass may never run: a
+    // second rm, started now and run a second later by sh, removes such a link.
     // The folder stays: another copy of the mod for the same pane may be about to link into it.
     const mine = [...(this.made.get(paneKey) ?? [])];
     let now: Promise<unknown> = Promise.resolve();
     try {
       if (mine.length > 0 && window()?.platform !== "windows") {
         const dir = `${appHome()}/${this.rel(paneKey)}`;
-        now = exec("rm", ["-f", "--", ...mine.map((n) => `${dir}/${n}`)], { timeout: 5000 }).catch(() => {});
+        const paths = mine.map((n) => `${dir}/${n}`);
+        now = exec("rm", ["-f", "--", ...paths], { timeout: 5000 }).catch(() => {});
+        const late = paths.filter((p) => this.linking.has(p));
+        // Not waited for: close would otherwise take a second whenever an image is being linked.
+        if (late.length > 0)
+          exec("sh", ["-c", 'sleep 1; rm -f -- "$@"', "sh", ...late], { timeout: 5000 }).catch(() => {});
       }
     } catch {
       /* the queued pass tries again */

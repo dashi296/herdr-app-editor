@@ -87,6 +87,65 @@ test("release starts removing its own links before anything else is awaited (at 
   expect(await readdir(dir("k1"))).toEqual([]);
 });
 
+test("closing while ln runs also starts a later rm of that link, which runs even if nothing else does", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  let resume!: () => void;
+  const held = new Promise<void>((r) => (resume = r));
+  const calls: string[][] = [];
+  let late: Promise<unknown> | null = null;
+  const real = host.exec;
+  host.exec = (cmd, args, opts) => {
+    calls.push([cmd, ...args]);
+    if (cmd === "ln") return held.then(() => real(cmd, args, opts));
+    const run = real(cmd, args, opts);
+    if (cmd === "sh") late = run;
+    return run;
+  };
+  const exposing = store.expose(a, "k1");
+  await until(() => calls.some((c) => c[0] === "ln"));
+  const link = calls.find((c) => c[0] === "ln")!.at(-1)!;
+  calls.length = 0;
+  const releasing = store.release("k1");
+  expect(calls).toEqual([
+    ["rm", "-f", "--", link],
+    ["sh", "-c", 'sleep 1; rm -f -- "$@"', "sh", link],
+  ]);
+  // The ln finishes after the first rm; only the later rm is relied on here.
+  resume();
+  await exposing;
+  expect(
+    await lstat(link).then(
+      () => true,
+      () => false,
+    ),
+  ).toBe(true);
+  await late;
+  expect(
+    await lstat(link).then(
+      () => true,
+      () => false,
+    ),
+  ).toBe(false);
+  await releasing;
+});
+
+test("release with no ln running starts no later rm", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  await store.expose(a, "k1");
+  const cmds: string[] = [];
+  const real = host.exec;
+  host.exec = (cmd, args, opts) => {
+    cmds.push(cmd);
+    return real(cmd, args, opts);
+  };
+  await store.release("k1");
+  expect(cmds).not.toContain("sh");
+});
+
 test("a copy of the mod closing for the same pane does not break the other copy's expose", async () => {
   const a = join(outside, "a.png");
   await writeFile(a, "a");
