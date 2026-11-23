@@ -512,6 +512,8 @@ describe("images (#42)", () => {
     host.texts = [];
     v.render(cx);
     expect(host.images).toEqual(["images/k1/1"]);
+    // Scaled down to fit both ways, never up (spike S13: only both max sizes keep it inside).
+    expect(host.imageStyles).toEqual(["max_w_full", "max_h_full"]);
     expect(host.texts).toEqual(["pic.PNG", "/p/pic.PNG"]);
   });
 
@@ -591,6 +593,36 @@ describe("images (#42)", () => {
     await first;
     expect(v.screen.kind).toBe("ready");
     expect(v.doc?.path).toBe("/p/b.txt");
+  });
+
+  test("an image that fails after a text file was opened meanwhile does not replace that file with its message", async () => {
+    const v = await opened();
+    files.disk.set("/p/b.txt", "b");
+    images.gate = deferred();
+    const gate = images.gate;
+    const first = v.openFile("/p/gone.png", null, cx);
+    await settle();
+    await v.openFile("/p/b.txt", null, cx);
+    gate.resolve();
+    await first;
+    expect(v.screen.kind).toBe("ready");
+    expect(v.doc?.path).toBe("/p/b.txt");
+  });
+
+  test("closing starts releasing the image before the draft is flushed", async () => {
+    const v = await opened();
+    images.present.add("/p/pic.png");
+    await v.openFile("/p/pic.png", null, cx);
+    const order: string[] = [];
+    images.release = async () => {
+      order.push("release");
+    };
+    const w = (v as unknown as { writer: { flush(): Promise<void> } }).writer;
+    w.flush = async () => {
+      order.push("flush");
+    };
+    await v.close(cx);
+    expect(order).toEqual(["release", "flush"]);
   });
 
   test("a text file opens after an image, and an svg is still text", async () => {

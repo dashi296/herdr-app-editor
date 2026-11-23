@@ -58,7 +58,7 @@ test("every expose uses a new path and removes the pane's earlier link, not the 
   expect(await Bun.file(a).text()).toBe("a");
 });
 
-test("panes do not remove each other's links", async () => {
+test("panes do not remove each other's links, and release removes the pane's emptied folder", async () => {
   const a = join(outside, "a.png");
   await writeFile(a, "a");
   const store = new HerdrImageStore();
@@ -66,7 +66,24 @@ test("panes do not remove each other's links", async () => {
   await store.expose(a, "k2");
   await store.release("k2");
   expect((await readdir(dir("k1"))).length).toBe(1);
-  expect(await readdir(dir("k2"))).toEqual([]);
+  expect(await readdir(join(home, "data", NS, "images"))).toEqual(["k1"]);
+});
+
+test("release starts removing its own links before anything else is awaited (at quit only new exec calls finish)", async () => {
+  const a = join(outside, "a.png");
+  await writeFile(a, "a");
+  const store = new HerdrImageStore();
+  const shown = await store.expose(a, "k1");
+  const calls: string[][] = [];
+  const real = host.exec;
+  host.exec = (cmd, args, opts) => {
+    calls.push([cmd, ...args]);
+    return real(cmd, args, opts);
+  };
+  const done = store.release("k1");
+  expect(calls).toEqual([["rm", "-f", "--", join(home, shown)]]);
+  await done;
+  expect(await readdir(join(home, "data", NS, "images"))).toEqual([]);
 });
 
 test("a missing file and a folder are rejected, and no link is left", async () => {

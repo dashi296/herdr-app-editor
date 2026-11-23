@@ -261,9 +261,11 @@ export abstract class EditorView extends View {
       run(`${MOD_EDITOR}.${encodeCommand("reply", { to: d.to, req: d.req, choice: this.choice ?? "cancel" })}`);
       return;
     }
-    await this.writer?.flush();
+    // Started first: at quit only exec calls started now are sure to finish (gpui-kit View.close).
     // The link of a shown picture; the pane makes a new one when it starts again.
-    await this.deps?.images.release(this.key);
+    const released = this.deps?.images.release(this.key);
+    await this.writer?.flush();
+    await released;
   }
 
   // ---------- opening ----------

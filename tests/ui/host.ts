@@ -186,6 +186,8 @@ export const host = {
   reads: [] as string[],
   /** Every path given to image(). Clear it before the render you check. */
   images: [] as string[],
+  /** The methods called on the last image() element, in order. */
+  imageStyles: [] as string[],
 };
 
 export function reset() {
@@ -210,6 +212,7 @@ export function reset() {
   host.files = new Map();
   host.reads = [];
   host.images = [];
+  host.imageStyles = [];
   FakeEditorState.created = [];
   FakeInputState.created = [];
 }
@@ -236,7 +239,15 @@ export function install() {
     svg: element,
     image: (path: string) => {
       host.images.push(path);
-      return element();
+      host.imageStyles = [];
+      // Records the style calls made on the picture, so a test can check how it is fitted.
+      const self: unknown = new Proxy(function () {}, {
+        get: (_t, key) => () => {
+          host.imageStyles.push(String(key));
+          return self;
+        },
+      });
+      return self;
     },
   }));
   mock.module("gpui-base", () => ({

@@ -192,23 +192,34 @@ class HerdrImageStore {
     });
   }
   release(paneKey) {
-    return this.queued(() => this.remove(paneKey));
+    const mine = [...this.made.get(paneKey) ?? []];
+    let now = Promise.resolve();
+    if (mine.length > 0 && window2()?.platform !== "windows") {
+      try {
+        const dir = `${appHome()}/${this.rel(paneKey)}`;
+        now = exec2("rm", ["-f", "--", ...mine.map((n) => `${dir}/${n}`)], { timeout: 5000 }).catch(() => {});
+      } catch {}
+    }
+    return Promise.all([now, this.queued(() => this.remove(paneKey, true))]).then(() => {});
   }
-  async remove(paneKey) {
+  async remove(paneKey, dropDir = false) {
     try {
       const dir = `${appHome()}/${this.rel(paneKey)}`;
       if (!await fs.exists(dir))
         return;
       const mine = this.made.get(paneKey), now = Date.now();
-      const names = (await fs.readdir(dir)).filter((n) => mine?.has(n) || isStale(n, now));
+      const all = await fs.readdir(dir);
+      const names = all.filter((n) => mine?.has(n) || isStale(n, now));
       this.made.delete(paneKey);
-      if (names.length === 0)
-        return;
-      if (window2()?.platform === "windows")
-        for (const n of names)
-          await fs.unlink(`${dir}/${n}`);
-      else
-        await exec2("rm", ["-f", "--", ...names.map((n) => `${dir}/${n}`)], { timeout: 5000 });
+      if (names.length > 0) {
+        if (window2()?.platform === "windows")
+          for (const n of names)
+            await fs.unlink(`${dir}/${n}`);
+        else
+          await exec2("rm", ["-f", "--", ...names.map((n) => `${dir}/${n}`)], { timeout: 5000 });
+      }
+      if (dropDir && all.length === names.length)
+        await fs.rmdir(dir);
     } catch {}
   }
 }
@@ -1171,8 +1182,9 @@ class EditorView extends View {
       run(`${MOD_EDITOR}.${encodeCommand("reply", { to: d.to, req: d.req, choice: this.choice ?? "cancel" })}`);
       return;
     }
+    const released = this.deps?.images.release(this.key);
     await this.writer?.flush();
-    await this.deps?.images.release(this.key);
+    await released;
   }
   async openFile(path, on, cx, at = null) {
     const seq = ++this.openSeq;
